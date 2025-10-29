@@ -1,27 +1,39 @@
 {
   "layout": {
-    "object_orientation": 0,
     "center_lines": {
       "horizontal": 39,
       "vertical": 19
     },
-    "elements": []
+    "elements": [],
+    "object_orientation": 0
   },
   "elements": [
     {
-      "type": "line",
-      "start": [
-        -8.223151219433738,
-        12.907761867601238
-      ],
+      "color": "#00ffff",
       "end": [
         58.22315121943374,
         37.09223813239876
       ],
       "label": "Line 1",
-      "color": "#00ffff"
+      "start": [
+        -8.223151219433738,
+        12.907761867601238
+      ],
+      "type": "line"
+    },
+    {
+      "type": "text",
+      "position": [
+        200,
+        100
+      ],
+      "rotation": 0,
+      "font_size": 10,
+      "text": "Sample Text",
+      "color": "#00ffff",
+      "label": "Text 2"
     }
   ],
   "config_name": "asd",
-  "timestamp": "2025-10-29T21:23:49.437599"
+  "timestamp": "2025-10-29T21:48:55.766205"
 }
