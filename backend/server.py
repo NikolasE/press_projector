@@ -698,7 +698,62 @@ def handle_render_svg(data):
         target_w = int(data.get('target_width', projector_resolution['width']))
         target_h = int(data.get('target_height', projector_resolution['height']))
 
-        png_bytes = cairosvg.svg2png(bytestring=svg_str.encode('utf-8'), output_width=target_w, output_height=target_h)
+        # Convert relative image URLs to base64 data URIs for rasterization
+        import re
+        def replace_upload_url(match):
+            filename = match.group(1)
+            filepath = os.path.join(file_manager.upload_dir, filename)
+            if os.path.exists(filepath):
+                try:
+                    # Read image file
+                    with open(filepath, 'rb') as f:
+                        img_data = f.read()
+                    
+                    # Determine MIME type from extension
+                    ext = filename.rsplit('.', 1)[-1].lower()
+                    mime_types = {
+                        'png': 'image/png',
+                        'jpg': 'image/jpeg',
+                        'jpeg': 'image/jpeg',
+                        'svg': 'image/svg+xml'
+                    }
+                    mime_type = mime_types.get(ext, 'image/png')
+                    
+                    # Encode as base64
+                    b64_data = base64.b64encode(img_data).decode('ascii')
+                    data_url = f'data:{mime_type};base64,{b64_data}'
+                    
+                    return f'xlink:href="{data_url}"'
+                except Exception as e:
+                    print(f"Error encoding image {filename}: {e}")
+                    return match.group(0)  # Keep original if encoding fails
+            else:
+                # If file doesn't exist, keep original
+                return match.group(0)
+        
+        svg_with_abs_urls = re.sub(
+            r'xlink:href="/uploads/([^"]+)"',
+            replace_upload_url,
+            svg_str
+        )
+        
+        # Save SVG to disk before rasterizing (with pretty printing)
+        try:
+            import xml.dom.minidom
+            debug_dir = os.path.join('config', 'renders')
+            os.makedirs(debug_dir, exist_ok=True)
+            svg_filepath = os.path.join(debug_dir, 'latest.svg')
+            
+            # Parse and pretty-print the SVG
+            dom = xml.dom.minidom.parseString(svg_with_abs_urls.encode('utf-8'))
+            pretty_svg = dom.toprettyxml(indent="  ", encoding=None)
+            
+            with open(svg_filepath, 'w', encoding='utf-8') as f:
+                f.write(pretty_svg)
+        except Exception as e:
+            print(f"Failed to save SVG to disk: {e}")
+
+        png_bytes = cairosvg.svg2png(bytestring=svg_with_abs_urls.encode('utf-8'), output_width=target_w, output_height=target_h)
 
         # Decode PNG to image (BGRA)
         buf = np.frombuffer(png_bytes, dtype=np.uint8)

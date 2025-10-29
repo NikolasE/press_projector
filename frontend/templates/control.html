@@ -509,57 +509,48 @@
                 <label>Label</label>
                 <input type="text" id="eeLabel">
             </div>
-            <div id="eeRectFields" style="display:none;">
-                <div class="form-group" style="margin-bottom:0.75rem;">
-                    <label>Width (mm)</label>
-                <input type="text" id="eeWidth">
-                </div>
-                <div class="form-group" style="margin-bottom:0.75rem;">
-                    <label>Height (mm)</label>
-                <input type="text" id="eeHeight">
-                </div>
-            </div>
-            <div id="eeLineFields" style="display:none;">
+            <!-- Common position and rotation fields for most element types -->
+            <div id="eeCommonFields" style="display:none;">
                 <div class="form-group" style="margin-bottom:0.75rem; display:flex; gap:0.5rem;">
                     <div style="flex:1;">
                         <label>X (mm)</label>
-                <input type="text" id="eeLineX">
+                        <input type="text" id="eeX">
                     </div>
                     <div style="flex:1;">
                         <label>Y (mm)</label>
-                <input type="text" id="eeLineY">
+                        <input type="text" id="eeY">
                     </div>
                 </div>
                 <div class="form-group" style="margin-bottom:0.75rem;">
                     <label>Rotation (deg)</label>
-                    <input type="text" id="eeLineAngle">
-                    <div style="font-size:0.85rem; color:#666; margin-top:0.25rem;">Length stays unchanged; edits reposition and rotate the line.</div>
+                    <input type="text" id="eeRotation">
                 </div>
+            </div>
+
+            <!-- Type-specific additional fields -->
+            <div id="eeRectFields" style="display:none;">
+                <div class="form-group" style="margin-bottom:0.75rem;">
+                    <label>Width (mm)</label>
+                    <input type="text" id="eeWidth">
+                </div>
+                <div class="form-group" style="margin-bottom:0.75rem;">
+                    <label>Height (mm)</label>
+                    <input type="text" id="eeHeight">
+                </div>
+            </div>
+            <div id="eeLineFields" style="display:none;">
+                <div style="font-size:0.85rem; color:#666; margin-top:0.25rem; margin-bottom:0.5rem;">Length stays unchanged; edits reposition and rotate the line.</div>
             </div>
             <div id="eeCircleFields" style="display:none;">
                 <div class="form-group" style="margin-bottom:0.75rem;">
                     <label>Radius (mm)</label>
-                <input type="text" id="eeRadius">
+                    <input type="text" id="eeRadius">
                 </div>
             </div>
             <div id="eeTextFields" style="display:none;">
-                <div class="form-group" style="margin-bottom:0.75rem; display:flex; gap:0.5rem;">
-                    <div style="flex:1;">
-                        <label>X (mm)</label>
-                        <input type="text" id="eeTextX">
-                    </div>
-                    <div style="flex:1;">
-                        <label>Y (mm)</label>
-                        <input type="text" id="eeTextY">
-                    </div>
-                </div>
-                <div class="form-group" style="margin-bottom:0.75rem;">
-                    <label>Rotation (deg)</label>
-                <input type="text" id="eeTextRotation">
-                </div>
                 <div class="form-group" style="margin-bottom:0.75rem;">
                     <label>Font size (mm)</label>
-                <input type="text" id="eeTextSize">
+                    <input type="text" id="eeTextSize">
                 </div>
                 <div class="form-group" style="margin-bottom:0.75rem;">
                     <label>Text</label>
@@ -608,6 +599,18 @@
             <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
                 <button class="btn btn-success" id="scmStoreBtn" onclick="onStoreCalibrationFromModal()">Store Calibration</button>
                 <button class="btn" style="background:#7f8c8d;" onclick="onDiscardCalibrationFromModal()">Discard</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Element Confirmation Modal -->
+    <div id="deleteElementModal" onclick="if(event.target===this) hideDeleteElementModal()" style="display:none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center;">
+        <div style="background: white; padding: 1.5rem; border-radius: 8px; width: 380px; max-width: 90vw; box-shadow: 0 10px 30px rgba(0,0,0,0.25);">
+            <h3 style="margin-bottom: 0.75rem; color:#e74c3c;">Delete Element</h3>
+            <p style="margin-bottom: 1.5rem; color:#555;">Are you sure you want to delete <strong id="deleteElementName">this element</strong>? This action cannot be undone.</p>
+            <div style="display:flex; gap:0.75rem; justify-content:flex-end;">
+                <button class="btn" style="background:#7f8c8d;" onclick="hideDeleteElementModal()">Cancel</button>
+                <button class="btn" style="background:#e74c3c;" id="deleteConfirmBtn" onclick="confirmDeleteElement()">Delete</button>
             </div>
         </div>
     </div>
@@ -761,15 +764,14 @@
             enforceNumericInput(document.getElementById('centerLineV'), { allowNegative: false, allowDecimal: true });
 
             // Element editor fields (may be hidden but present in DOM)
+            // Common position/rotation fields
+            enforceNumericInput(document.getElementById('eeX'), { allowNegative: false, allowDecimal: true });
+            enforceNumericInput(document.getElementById('eeY'), { allowNegative: false, allowDecimal: true });
+            enforceNumericInput(document.getElementById('eeRotation'), { allowNegative: true, allowDecimal: true });
+            // Type-specific fields
             enforceNumericInput(document.getElementById('eeWidth'), { allowNegative: false, allowDecimal: true });
             enforceNumericInput(document.getElementById('eeHeight'), { allowNegative: false, allowDecimal: true });
-            enforceNumericInput(document.getElementById('eeLineX'), { allowNegative: false, allowDecimal: true });
-            enforceNumericInput(document.getElementById('eeLineY'), { allowNegative: false, allowDecimal: true });
-            enforceNumericInput(document.getElementById('eeLineAngle'), { allowNegative: true, allowDecimal: true });
             enforceNumericInput(document.getElementById('eeRadius'), { allowNegative: false, allowDecimal: true });
-            enforceNumericInput(document.getElementById('eeTextX'), { allowNegative: false, allowDecimal: true });
-            enforceNumericInput(document.getElementById('eeTextY'), { allowNegative: false, allowDecimal: true });
-            enforceNumericInput(document.getElementById('eeTextRotation'), { allowNegative: true, allowDecimal: true });
             enforceNumericInput(document.getElementById('eeTextSize'), { allowNegative: false, allowDecimal: true });
         }
 
@@ -1462,60 +1464,57 @@ function validateCalibration() {
             const editor = document.getElementById('elementEditor');
             const label = document.getElementById('eeLabel');
             const color = document.getElementById('eeColor');
+            const commonFields = document.getElementById('eeCommonFields');
             const rectFields = document.getElementById('eeRectFields');
             const lineFields = document.getElementById('eeLineFields');
             const circleFields = document.getElementById('eeCircleFields');
             const textFields = document.getElementById('eeTextFields');
             const imageFields = document.getElementById('eeImageFields');
-            const widthInput = document.getElementById('eeWidth');
-            const heightInput = document.getElementById('eeHeight');
-            const lineXInput = document.getElementById('eeLineX');
-            const lineYInput = document.getElementById('eeLineY');
-            const lineAngleInput = document.getElementById('eeLineAngle');
-            const radiusInput = document.getElementById('eeRadius');
-            const textXInput = document.getElementById('eeTextX');
-            const textYInput = document.getElementById('eeTextY');
-            const textRotInput = document.getElementById('eeTextRotation');
-            const textSizeInput = document.getElementById('eeTextSize');
-            const textContentInput = document.getElementById('eeTextContent');
-            const imageWidthInput = document.getElementById('eeImageWidth');
-            const imageRotationInput = document.getElementById('eeImageRotation');
 
             label.value = element.label || '';
             color.value = normalizeColorForInput(element.color || '#00ffff');
+            
+            // Show/hide common fields based on element type
+            const showCommonFields = ['rectangle', 'circle', 'text', 'image', 'line'].includes(element.type);
+            commonFields.style.display = showCommonFields ? 'block' : 'none';
+            
+            // Show/hide type-specific fields
             rectFields.style.display = element.type === 'rectangle' ? 'block' : 'none';
             lineFields.style.display = element.type === 'line' ? 'block' : 'none';
             circleFields.style.display = element.type === 'circle' ? 'block' : 'none';
             textFields.style.display = element.type === 'text' ? 'block' : 'none';
             imageFields.style.display = element.type === 'image' ? 'block' : 'none';
-            if (element.type === 'rectangle') {
-                widthInput.value = element.width != null ? element.width : '';
-                heightInput.value = element.height != null ? element.height : '';
-            }
-            if (element.type === 'line') {
+            
+            // Populate common fields based on element type
+            if (element.type === 'rectangle' || element.type === 'circle' || element.type === 'text' || element.type === 'image') {
+                const [x, y] = element.position || [0, 0];
+                document.getElementById('eeX').value = x != null ? x.toFixed(1) : '';
+                document.getElementById('eeY').value = y != null ? y.toFixed(1) : '';
+                document.getElementById('eeRotation').value = element.rotation != null ? element.rotation : 0;
+            } else if (element.type === 'line') {
+                // Lines compute x, y from start/end points
                 const [x1,y1] = element.start || [0,0];
                 const [x2,y2] = element.end || [0,0];
                 const mx = (x1 + x2) / 2;
                 const my = (y1 + y2) / 2;
                 const ang = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
-                lineXInput.value = mx.toFixed(1);
-                lineYInput.value = my.toFixed(1);
-                lineAngleInput.value = ang.toFixed(1);
+                document.getElementById('eeX').value = mx.toFixed(1);
+                document.getElementById('eeY').value = my.toFixed(1);
+                document.getElementById('eeRotation').value = ang.toFixed(1);
             }
-            if (element.type === 'circle') {
-                radiusInput.value = element.radius != null ? element.radius : '';
-            }
-            if (element.type === 'text') {
-                const [tx, ty] = element.position || [0, 0];
-                textXInput.value = tx != null ? tx : '';
-                textYInput.value = ty != null ? ty : '';
-                textRotInput.value = element.rotation != null ? element.rotation : 0;
-                textSizeInput.value = element.font_size != null ? element.font_size : 10;
-                textContentInput.value = element.text != null ? element.text : '';
-            }
-            if (element.type === 'image') {
-                imageWidthInput.value = element.width != null ? element.width : '';
-                imageRotationInput.value = element.rotation != null ? element.rotation : 0;
+            
+            // Type-specific field population
+            if (element.type === 'rectangle') {
+                document.getElementById('eeWidth').value = element.width != null ? element.width : '';
+                document.getElementById('eeHeight').value = element.height != null ? element.height : '';
+            } else if (element.type === 'circle') {
+                document.getElementById('eeRadius').value = element.radius != null ? element.radius : '';
+            } else if (element.type === 'text') {
+                document.getElementById('eeTextSize').value = element.font_size != null ? element.font_size : 10;
+                document.getElementById('eeTextContent').value = element.text != null ? element.text : '';
+            } else if (element.type === 'image') {
+                document.getElementById('eeImageWidth').value = element.width != null ? element.width : '';
+                document.getElementById('eeImageRotation').value = element.rotation != null ? element.rotation : 0;
             }
 
             // live color preview while picker is open
@@ -1558,55 +1557,52 @@ function validateCalibration() {
             const element = elements[eeIndex];
             const label = document.getElementById('eeLabel').value;
             const color = document.getElementById('eeColor').value;
-            const widthInput = document.getElementById('eeWidth');
-            const heightInput = document.getElementById('eeHeight');
-            const radiusInput = document.getElementById('eeRadius');
-            const textXInput = document.getElementById('eeTextX');
-            const textYInput = document.getElementById('eeTextY');
-            const textRotInput = document.getElementById('eeTextRotation');
-            const textSizeInput = document.getElementById('eeTextSize');
-            const textContentInput = document.getElementById('eeTextContent');
 
             element.label = label;
             element.color = color;
+            
+            // Read common fields (X, Y, Rotation)
+            const x = parseFloat(document.getElementById('eeX').value);
+            const y = parseFloat(document.getElementById('eeY').value);
+            const rotation = parseFloat(document.getElementById('eeRotation').value);
+            
             if (element.type === 'rectangle') {
-                const w = parseFloat(widthInput.value);
-                const h = parseFloat(heightInput.value);
+                const w = parseFloat(document.getElementById('eeWidth').value);
+                const h = parseFloat(document.getElementById('eeHeight').value);
+                if (!Number.isNaN(x) && !Number.isNaN(y)) element.position = [x, y];
+                if (!Number.isNaN(rotation)) element.rotation = rotation;
                 if (!Number.isNaN(w) && w >= 0) element.width = w;
                 if (!Number.isNaN(h) && h >= 0) element.height = h;
             } else if (element.type === 'line') {
-                const lx = parseFloat(document.getElementById('eeLineX').value);
-                const ly = parseFloat(document.getElementById('eeLineY').value);
-                const la = parseFloat(document.getElementById('eeLineAngle').value);
-                if (!Number.isNaN(lx) && !Number.isNaN(ly) && !Number.isNaN(la)) {
+                // Lines reconstruct start/end from center point and rotation
+                if (!Number.isNaN(x) && !Number.isNaN(y) && !Number.isNaN(rotation)) {
                     const [x1,y1] = element.start || [0,0];
                     const [x2,y2] = element.end || [0,0];
                     const len = Math.hypot(x2 - x1, y2 - y1);
                     const half = len / 2;
-                    const rad = la * Math.PI / 180;
+                    const rad = rotation * Math.PI / 180;
                     const dx = Math.cos(rad) * half;
                     const dy = Math.sin(rad) * half;
-                    element.start = [lx - dx, ly - dy];
-                    element.end = [lx + dx, ly + dy];
+                    element.start = [x - dx, y - dy];
+                    element.end = [x + dx, y + dy];
                 }
             } else if (element.type === 'circle') {
-                const r = parseFloat(radiusInput.value);
+                const r = parseFloat(document.getElementById('eeRadius').value);
+                if (!Number.isNaN(x) && !Number.isNaN(y)) element.position = [x, y];
+                if (!Number.isNaN(rotation)) element.rotation = rotation;
                 if (!Number.isNaN(r) && r >= 0) element.radius = r;
             } else if (element.type === 'text') {
-                const tx = parseFloat(textXInput.value);
-                const ty = parseFloat(textYInput.value);
-                const tr = parseFloat(textRotInput.value);
-                const ts = parseFloat(textSizeInput.value);
-                const tc = String(textContentInput.value || '');
-                if (!Number.isNaN(tx) && !Number.isNaN(ty)) element.position = [tx, ty];
-                if (!Number.isNaN(tr)) element.rotation = tr;
+                const ts = parseFloat(document.getElementById('eeTextSize').value);
+                const tc = String(document.getElementById('eeTextContent').value || '');
+                if (!Number.isNaN(x) && !Number.isNaN(y)) element.position = [x, y];
+                if (!Number.isNaN(rotation)) element.rotation = rotation;
                 if (!Number.isNaN(ts) && ts >= 0) element.font_size = ts;
                 element.text = tc;
             } else if (element.type === 'image') {
                 const iw = parseFloat(document.getElementById('eeImageWidth').value);
-                const ir = parseFloat(document.getElementById('eeImageRotation').value);
+                if (!Number.isNaN(x) && !Number.isNaN(y)) element.position = [x, y];
+                if (!Number.isNaN(rotation)) element.rotation = rotation;
                 if (!Number.isNaN(iw) && iw >= 0) element.width = iw;
-                if (!Number.isNaN(ir)) element.rotation = ir;
             }
 
             updateElementList();
@@ -1636,7 +1632,34 @@ function validateCalibration() {
             return '#00ffff';
         }
 
+        let pendingDeleteIndex = null;
+
         function removeElement(index) {
+            const element = elements[index];
+            const elementName = element ? element.label : 'this element';
+            pendingDeleteIndex = index;
+            
+            document.getElementById('deleteElementName').textContent = `"${elementName}"`;
+            showDeleteElementModal();
+        }
+
+        function showDeleteElementModal() {
+            const modal = document.getElementById('deleteElementModal');
+            if (modal) modal.style.display = 'flex';
+            // Focus cancel button for quick keyboard interaction
+            try { document.getElementById('deleteConfirmBtn').focus(); } catch (e) {}
+        }
+
+        function hideDeleteElementModal() {
+            const modal = document.getElementById('deleteElementModal');
+            if (modal) modal.style.display = 'none';
+            pendingDeleteIndex = null;
+        }
+
+        function confirmDeleteElement() {
+            if (pendingDeleteIndex === null) return;
+            
+            const index = pendingDeleteIndex;
             elements.splice(index, 1);
             if (selectedElementIndex === index) {
                 selectedElementIndex = -1;
@@ -1646,6 +1669,8 @@ function validateCalibration() {
             updateElementList();
             sendLayoutUpdate();
             renderControlPreview();
+            
+            hideDeleteElementModal();
         }
 
         // File management
@@ -1964,14 +1989,27 @@ function validateCalibration() {
                     if (typeof lg.draggable === 'function') {
                         lg.draggable();
                         lg.on('dragend', () => {
-                            // Compute new endpoints by applying the group's matrix to original points
-                            const m = lg.matrixify ? lg.matrixify() : { a:1, b:0, c:0, d:1, e:0, f:0 };
-                            const nx1 = m.a * x1 + m.c * y1 + m.e;
-                            const ny1 = m.b * x1 + m.d * y1 + m.f;
-                            const nx2 = m.a * x2 + m.c * y2 + m.e;
-                            const ny2 = m.b * x2 + m.d * y2 + m.f;
-                            el.start = [nx1, ny1];
-                            el.end = [nx2, ny2];
+                            // Get the current position after drag and convert back to mm
+                            const bbox = lg.bbox();
+                            const vb = lg.root().viewbox();
+                            const sx = vb.width / lg.root().node.getBoundingClientRect().width;
+                            const sy = vb.height / lg.root().node.getBoundingClientRect().height;
+                            
+                            // Calculate the center of the dragged line
+                            const newCenterX = bbox.cx;
+                            const newCenterY = bbox.cy;
+                            
+                            // Calculate the offset from original center
+                            const originalCenterX = (x1 + x2) / 2;
+                            const originalCenterY = (y1 + y2) / 2;
+                            const offsetX = newCenterX - originalCenterX;
+                            const offsetY = newCenterY - originalCenterY;
+                            
+                            // Update the element with the new positions
+                            el.start = [x1 + offsetX, y1 + offsetY];
+                            el.end = [x2 + offsetX, y2 + offsetY];
+                            
+                            sendLayoutUpdate();
                             renderControlPreview();
                         });
                     }

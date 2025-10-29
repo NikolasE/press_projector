@@ -264,13 +264,19 @@ class ProjectorManager:
     
     def _generate_image_svg(self, element: Dict[str, Any]) -> str:
         """Generate image SVG."""
-        import os
-        import base64
-        
         x_mm, y_mm = element.get("position", [0, 0])
         width_mm = element.get("width", 20)
         rotation = element.get("rotation", 0)
         image_url = element.get("image_url", "")
+        
+        # Use the URL as-is (no base64 conversion)
+        if not image_url:
+            return ""
+        
+        # Convert relative URLs to absolute for CairoSVG
+        if image_url.startswith('/uploads/'):
+            # Use http://localhost:5000 as the base
+            image_url = f'http://localhost:5000{image_url}'
         
         x_px, y_px = self.calibrator.press_to_projector(x_mm, y_mm)
         width_px = self.calibrator.mm_to_pixels(width_mm)
@@ -278,41 +284,16 @@ class ProjectorManager:
         # Calculate height maintaining aspect ratio
         height_px = width_px  # Assuming square for now
         
-        # Convert image URL to base64 data URL for CairoSVG compatibility
-        image_data_url = image_url
-        if image_url and not image_url.startswith('data:'):
-            # Try to resolve as file path
-            if image_url.startswith('/uploads/'):
-                filename = image_url.replace('/uploads/', '')
-                uploads_dir = "uploads"
-                filepath = os.path.join(uploads_dir, filename)
-                if os.path.exists(filepath):
-                    try:
-                        with open(filepath, 'rb') as f:
-                            file_data = f.read()
-                        ext = filename.rsplit('.', 1)[-1].lower()
-                        mime_types = {
-                            'png': 'image/png',
-                            'jpg': 'image/jpeg',
-                            'jpeg': 'image/jpeg',
-                            'svg': 'image/svg+xml'
-                        }
-                        mime_type = mime_types.get(ext, 'application/octet-stream')
-                        b64_data = base64.b64encode(file_data).decode('ascii')
-                        image_data_url = f'data:{mime_type};base64,{b64_data}'
-                    except Exception as e:
-                        print(f"Error reading image file {filepath}: {e}")
-        
         if rotation != 0:
             center_x = x_px + width_px / 2
             center_y = y_px + height_px / 2
             return f'''
             <g transform="rotate({rotation} {center_x} {center_y})">
-                <image x="{x_px}" y="{y_px}" width="{width_px}" height="{height_px}" xlink:href="{image_data_url}"/>
+                <image x="{x_px}" y="{y_px}" width="{width_px}" height="{height_px}" xlink:href="{image_url}"/>
             </g>
             '''
         else:
-            return f'<image x="{x_px}" y="{y_px}" width="{width_px}" height="{height_px}" xlink:href="{image_data_url}"/>'
+            return f'<image x="{x_px}" y="{y_px}" width="{width_px}" height="{height_px}" xlink:href="{image_url}"/>'
 
     def _generate_text_svg(self, element: Dict[str, Any]) -> str:
         """Generate text SVG."""
