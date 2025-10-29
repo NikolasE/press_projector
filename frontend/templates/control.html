@@ -222,11 +222,24 @@
             align-items: center;
             padding: 0.5rem;
             border-bottom: 1px solid #eee;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .element-item:hover {
+            background-color: #f8f9fa;
         }
 
         .element-item:last-child {
             border-bottom: none;
         }
+
+        .element-item.selected {
+            background-color: #e8f4fb;
+            border-left: 3px solid #3498db;
+        }
+
+        /* Blinking animation will be applied directly via JavaScript to SVG elements */
 
         .element-controls {
             display: flex;
@@ -318,10 +331,6 @@
 <body>
     <div class="header">
         <h1>Press Projector Control</h1>
-        <div>
-            <span class="status-indicator" id="connectionStatus"></span>
-            <span id="connectionText">Connecting...</span>
-        </div>
     </div>
 
     <button class="setup-tab-button" onclick="toggleSetupMode()">Setup & Maintenance</button>
@@ -329,79 +338,64 @@
     <div class="main-container">
         <div class="sidebar">
             <div class="tab-buttons">
-                <button class="tab-button active" onclick="switchTab('calibration')">Calibration</button>
-                <button class="tab-button" onclick="switchTab('layout')">Layout</button>
+                <button class="tab-button active" onclick="switchTab('layout')">Layout</button>
                 <button class="tab-button" onclick="switchTab('files')">Files</button>
             </div>
 
-            <!-- Calibration Tab -->
-            <div id="calibration-tab" class="tab-container active">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                    <h3>Press Calibration</h3>
-                    <button class="btn" onclick="toggleCalibrationGuide()" style="background: #3498db; padding: 0.5rem 1rem; font-size: 0.9rem;">
-                        📖 View Calibration Guide
-                    </button>
-                </div>
-                
-                <!-- Calibration Guide (Hidden by default) -->
-                <div id="calibrationGuide" class="tab-container" style="display: none; margin-bottom: 1rem; padding: 1rem; background: #f8f9fa; border-radius: 8px; border: 1px solid #ddd; max-height: 600px; overflow-y: auto;">
-                    <h4>Calibration Guide</h4>
-                    <div id="calibrationGuideContent"></div>
-                </div>
-                
-                <div class="form-group">
-                    <label>Press Dimensions (mm)</label>
-                    <div style="display: flex; gap: 0.5rem;">
-                        <input type="number" id="pressWidth" placeholder="Width" step="0.1" oninput="renderControlPreview()" onchange="renderControlPreview()">
-                        <input type="number" id="pressHeight" placeholder="Height" step="0.1" oninput="renderControlPreview()" onchange="renderControlPreview()">
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <div style="display: flex; gap: 0.5rem; align-items: center;">
-                        <button class="btn" onclick="toggleInteractiveCalibration()" id="startCalibrationBtn">
-                            🎯 Start Interactive Calibration
-                        </button>
-                        <span id="calibrationStatus" style="color: #666; font-style: italic;"></span>
-                    </div>
-                </div>
-
-
-                <button class="btn" id="validateBtn" onclick="validateCalibration()">Validate Quality</button>
-            </div>
-
             <!-- Layout Tab -->
-            <div id="layout-tab" class="tab-container">
+            <div id="layout-tab" class="tab-container active">
                 <h3>Layout Editor</h3>
                 
                 <div class="form-group">
                     <label>Object Orientation (degrees)</label>
                     <div style="display:flex; align-items:center; gap:0.5rem;">
-                        <input type="number" id="objectOrientation" placeholder="0" step="0.1" oninput="updateObjectOrientation()" onchange="updateObjectOrientation()" style="width:18ch;">
+                        <input type="text" id="objectOrientation" placeholder="0" oninput="updateObjectOrientation()" onchange="updateObjectOrientation()" style="width:6ch;">
                         <button class="btn" style="padding:0.4rem 0.6rem; font-size:0.9rem;" onclick="resetOrientation()">Reset</button>
                     </div>
                 </div>
 
                 <div class="form-group">
                     <label>Center Lines (mm)</label>
-                    <div style="display: flex; gap: 0.5rem;">
-                        <input type="number" id="centerLineH" placeholder="Horizontal Y" step="1" oninput="updateCenterLines()" onchange="updateCenterLines()">
-                        <input type="number" id="centerLineV" placeholder="Vertical X" step="1" oninput="updateCenterLines()" onchange="updateCenterLines()">
+                    <div>
+                        <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
+                            <span style="min-width:100px;">Vertical (X)</span>
+                            <input type="text" id="centerLineV" placeholder="Vertical X" oninput="updateCenterLines()" onchange="updateCenterLines()" style="width:8ch;">
+                        </div>
+                        <div style="display:flex; align-items:center; gap:0.5rem;">
+                            <span style="min-width:100px;">Horizontal (Y)</span>
+                            <input type="text" id="centerLineH" placeholder="Horizontal Y" oninput="updateCenterLines()" onchange="updateCenterLines()" style="width:8ch;">
+                        </div>
                     </div>
                 </div>
 
                 <h4>Drawing Tools</h4>
-                <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap;">
-                    <button class="btn" onclick="addLine()">Add Line</button>
-                    <button class="btn" onclick="addRectangle()">Add Rectangle</button>
-                    <button class="btn" onclick="addCircle()">Add Circle</button>
-                    <button class="btn" onclick="addImage()">Add Image</button>
-                    <button class="btn" onclick="addText()">Add Text</button>
+                <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem;">
+                    <button class="btn" onclick="addLine()" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">📏 Add Line</button>
+                    <button class="btn" onclick="addRectangle()" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">▭ Add Rectangle</button>
+                    <button class="btn" onclick="addCircle()" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">○ Add Circle</button>
+                    <button class="btn" onclick="addText()" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">🔤 Add Text</button>
+                    <button class="btn" onclick="addImage()" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">🖼️ Add Image</button>
                 </div>
 
                 <h4>Elements</h4>
                 <div class="element-list" id="elementList">
                     <!-- Elements will be added here dynamically -->
+                </div>
+
+                <div id="nudgeControls" style="margin-top:0.5rem; display:none;">
+                    <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:0.25rem; width: 100%; max-width: 260px;">
+                        <div></div>
+                        <button class="btn" style="padding:0.4rem;" onclick="nudgeSelected(0,-1)" title="Up (1 mm)">⬆️</button>
+                        <div></div>
+                        <button class="btn" style="padding:0.4rem;" onclick="nudgeSelected(-1,0)" title="Left (1 mm)">⬅️</button>
+                        <button class="btn" style="padding:0.4rem;" onclick="nudgeSelected(0,1)" title="Down (1 mm)">⬇️</button>
+                        <button class="btn" style="padding:0.4rem;" onclick="nudgeSelected(1,0)" title="Right (1 mm)">➡️</button>
+                    </div>
+                    <div style="display:flex; gap:0.25rem; margin-top:0.25rem;">
+                        <button class="btn" style="padding:0.4rem;" onclick="rotateSelected(-Math.PI/180)" title="Rotate -1°">⟲ -1°</button>
+                        <button class="btn" style="padding:0.4rem;" onclick="rotateSelected(Math.PI/180)" title="Rotate +1°">⟳ +1°</button>
+                    </div>
+                    <div style="color:#666; font-size:0.85rem; margin-top:0.25rem;">Keyboard: arrows to move 1mm; Shift+Left/Right to rotate 1°</div>
                 </div>
 
                 <h4 style="margin-top: 1rem;">Saved Scenes</h4>
@@ -455,25 +449,55 @@
     </div>
 
     <!-- Setup & Maintenance Tab (Hidden by default) -->
-    <div id="setup-tab" class="tab-container" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; z-index: 9999; padding: 2rem;">
+    <div id="setup-tab" class="tab-container" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; z-index: 9999; padding: 2rem; overflow-y: auto;">
         <div style="max-width: 800px; margin: 0 auto;">
             <h2>Setup & Maintenance</h2>
             
-            <div class="form-group">
-                <h3>Press Boundary Pattern</h3>
-                <p>Use this to verify projector alignment after movement.</p>
-                <button class="btn" onclick="toggleBoundaryPattern()">Toggle Boundary Pattern</button>
-            </div>
-
-            <div class="form-group">
-                <h3>System Status</h3>
-                <div id="systemStatus">
-                    <p>Calibration: <span id="calibrationStatus">Not calibrated</span></p>
-                    <p>Projector: <span id="projectorStatus">Disconnected</span></p>
+            <!-- Calibration Section -->
+            <div style="margin-bottom: 2rem; padding: 1.5rem; background: #f8f9fa; border-radius: 8px; border: 1px solid #ddd;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h3>Press Calibration</h3>
+                    <button class="btn" onclick="toggleCalibrationGuide()" style="background: #3498db; padding: 0.5rem 1rem; font-size: 0.9rem;">
+                        📖 View Calibration Guide
+                    </button>
                 </div>
-            </div>
+                
+                <!-- Calibration Guide (Hidden by default) -->
+                <div id="calibrationGuide" style="display: none; margin-bottom: 1rem; padding: 1rem; background: white; border-radius: 8px; border: 1px solid #ddd; max-height: 600px; overflow-y: auto;">
+                    <h4>Calibration Guide</h4>
+                    <div id="calibrationGuideContent"></div>
+                </div>
+                
+                <div class="form-group">
+                    <label>Press Dimensions (mm)</label>
+                    <div>
+                        <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
+                            <span style="min-width:60px;">Width</span>
+                            <input type="text" id="pressWidth" placeholder="Width" oninput="renderControlPreview()" onchange="renderControlPreview()" style="width:8ch;">
+                        </div>
+                        <div style="display:flex; align-items:center; gap:0.5rem;">
+                            <span style="min-width:60px;">Height</span>
+                            <input type="text" id="pressHeight" placeholder="Height" oninput="renderControlPreview()" onchange="renderControlPreview()" style="width:8ch;">
+                        </div>
+                    </div>
+                </div>
 
-            <button class="btn btn-danger" onclick="toggleSetupMode()">Close Setup</button>
+                <div class="form-group">
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <button class="btn" onclick="toggleInteractiveCalibration()" id="startCalibrationBtn">
+                            🎯 Start Interactive Calibration
+                        </button>
+                    </div>
+                </div>
+
+                <button class="btn" id="validateBtn" onclick="validateCalibration()">Validate Quality</button>
+            </div>
+            
+            
+
+            
+
+            <button class="btn btn-danger" onclick="toggleSetupMode()" style="display:block; margin: 1rem auto 0 auto;">Close Setup</button>
         </div>
     </div>
 
@@ -488,58 +512,68 @@
             <div id="eeRectFields" style="display:none;">
                 <div class="form-group" style="margin-bottom:0.75rem;">
                     <label>Width (mm)</label>
-                    <input type="number" id="eeWidth" step="0.1" min="0">
+                <input type="text" id="eeWidth">
                 </div>
                 <div class="form-group" style="margin-bottom:0.75rem;">
                     <label>Height (mm)</label>
-                    <input type="number" id="eeHeight" step="0.1" min="0">
+                <input type="text" id="eeHeight">
                 </div>
             </div>
             <div id="eeLineFields" style="display:none;">
                 <div class="form-group" style="margin-bottom:0.75rem; display:flex; gap:0.5rem;">
                     <div style="flex:1;">
                         <label>X (mm)</label>
-                        <input type="number" id="eeLineX" step="0.1">
+                <input type="text" id="eeLineX">
                     </div>
                     <div style="flex:1;">
                         <label>Y (mm)</label>
-                        <input type="number" id="eeLineY" step="0.1">
+                <input type="text" id="eeLineY">
                     </div>
                 </div>
                 <div class="form-group" style="margin-bottom:0.75rem;">
                     <label>Rotation (deg)</label>
-                    <input type="number" id="eeLineAngle" step="0.1">
+                    <input type="text" id="eeLineAngle">
                     <div style="font-size:0.85rem; color:#666; margin-top:0.25rem;">Length stays unchanged; edits reposition and rotate the line.</div>
                 </div>
             </div>
             <div id="eeCircleFields" style="display:none;">
                 <div class="form-group" style="margin-bottom:0.75rem;">
                     <label>Radius (mm)</label>
-                    <input type="number" id="eeRadius" step="0.1" min="0">
+                <input type="text" id="eeRadius">
                 </div>
             </div>
             <div id="eeTextFields" style="display:none;">
                 <div class="form-group" style="margin-bottom:0.75rem; display:flex; gap:0.5rem;">
                     <div style="flex:1;">
                         <label>X (mm)</label>
-                        <input type="number" id="eeTextX" step="0.1">
+                        <input type="text" id="eeTextX">
                     </div>
                     <div style="flex:1;">
                         <label>Y (mm)</label>
-                        <input type="number" id="eeTextY" step="0.1">
+                        <input type="text" id="eeTextY">
                     </div>
                 </div>
                 <div class="form-group" style="margin-bottom:0.75rem;">
                     <label>Rotation (deg)</label>
-                    <input type="number" id="eeTextRotation" step="0.1">
+                <input type="text" id="eeTextRotation">
                 </div>
                 <div class="form-group" style="margin-bottom:0.75rem;">
                     <label>Font size (mm)</label>
-                    <input type="number" id="eeTextSize" step="0.1" min="0">
+                <input type="text" id="eeTextSize">
                 </div>
                 <div class="form-group" style="margin-bottom:0.75rem;">
                     <label>Text</label>
                     <input type="text" id="eeTextContent">
+                </div>
+            </div>
+            <div id="eeImageFields" style="display:none;">
+                <div class="form-group" style="margin-bottom:0.75rem;">
+                    <label>Width (mm)</label>
+                    <input type="number" id="eeImageWidth" step="0.1" min="0">
+                </div>
+                <div class="form-group" style="margin-bottom:0.75rem;">
+                    <label>Rotation (deg)</label>
+                    <input type="number" id="eeImageRotation" step="0.1">
                 </div>
             </div>
             <div class="form-group" style="margin-bottom:0.75rem;">
@@ -549,6 +583,19 @@
             <div style="display:flex; gap:0.5rem; justify-content:flex-end; margin-top: 0.5rem;">
                 <button class="btn" style="background:#7f8c8d;" onclick="closeElementEditor()">Cancel</button>
                 <button class="btn btn-success" onclick="saveElementEditor()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Image Selection Modal -->
+    <div id="imageSelectionModal" style="display:none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center;">
+        <div style="background: white; padding: 1.5rem; border-radius: 8px; width: 600px; max-width: 90vw; max-height: 80vh; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.25);">
+            <h3 style="margin-bottom: 1rem;">Select Image</h3>
+            <div id="imageSelectionList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+                <!-- Images will be added here dynamically -->
+            </div>
+            <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+                <button class="btn" style="background:#7f8c8d;" onclick="closeImageSelection()">Cancel</button>
             </div>
         </div>
     </div>
@@ -582,6 +629,7 @@
         let elements = [];
         let files = [];
         let configurations = [];
+        let selectedElementIndex = -1;
 
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
@@ -589,8 +637,38 @@
             loadFiles();
             loadConfigurations();
             updateElementList();
+            setupNumericInputs();
             // Attempt to auto-load last scene after initial data fetch
             fetchLastSceneAndAutoLoad();
+
+            // Wire drag & drop for file uploads
+            const dropzone = document.getElementById('fileUpload');
+            if (dropzone) {
+                const prevent = (e) => { e.preventDefault(); e.stopPropagation(); };
+                ['dragenter', 'dragover'].forEach(ev => dropzone.addEventListener(ev, (e) => {
+                    prevent(e);
+                    dropzone.classList.add('dragover');
+                }));
+                ['dragleave', 'dragend'].forEach(ev => dropzone.addEventListener(ev, (e) => {
+                    prevent(e);
+                    dropzone.classList.remove('dragover');
+                }));
+                dropzone.addEventListener('drop', (e) => {
+                    prevent(e);
+                    dropzone.classList.remove('dragover');
+                    const dt = e.dataTransfer;
+                    if (dt && dt.files && dt.files.length) {
+                        for (let i = 0; i < dt.files.length; i++) {
+                            uploadFile(dt.files[i]);
+                        }
+                    }
+                });
+            }
+
+            // Prevent browser from opening the file on drop outside the dropzone
+            ['dragover', 'drop'].forEach(ev => document.addEventListener(ev, (e) => {
+                e.preventDefault();
+            }));
         });
 
         // WebSocket connection
@@ -638,17 +716,68 @@
             window.socket = socket;
         }
 
+        // Numeric input enforcement
+        function enforceNumericInput(el, options) {
+            if (!el) return;
+            const allowNegative = !!(options && options.allowNegative);
+            const allowDecimal = options && options.allowDecimal !== false; // default true
+            el.addEventListener('beforeinput', (e) => {
+                if (e.inputType !== 'insertText') return;
+                const ch = e.data;
+                if (ch == null) return;
+                const isDigit = ch >= '0' && ch <= '9';
+                if (isDigit) return;
+                if (ch === '.' ) {
+                    if (!allowDecimal) { e.preventDefault(); return; }
+                    if (el.value.includes('.')) { e.preventDefault(); return; }
+                    return;
+                }
+                if (ch === '-') {
+                    if (!allowNegative) { e.preventDefault(); return; }
+                    // only allow minus at start and only once
+                    const atStart = (el.selectionStart || 0) === 0;
+                    if (!atStart || el.value.includes('-')) { e.preventDefault(); return; }
+                    return;
+                }
+                // block all other characters (e/E/+ etc.)
+                e.preventDefault();
+            });
+            el.addEventListener('keydown', (e) => {
+                // block exponential and plus
+                if (e.key === 'e' || e.key === 'E' || e.key === '+') {
+                    e.preventDefault();
+                }
+            });
+        }
+
+        function setupNumericInputs() {
+            // Calibration form
+            enforceNumericInput(document.getElementById('pressWidth'),  { allowNegative: false, allowDecimal: true });
+            enforceNumericInput(document.getElementById('pressHeight'), { allowNegative: false, allowDecimal: true });
+
+            // Layout controls
+            enforceNumericInput(document.getElementById('objectOrientation'), { allowNegative: true, allowDecimal: true });
+            enforceNumericInput(document.getElementById('centerLineH'), { allowNegative: false, allowDecimal: true });
+            enforceNumericInput(document.getElementById('centerLineV'), { allowNegative: false, allowDecimal: true });
+
+            // Element editor fields (may be hidden but present in DOM)
+            enforceNumericInput(document.getElementById('eeWidth'), { allowNegative: false, allowDecimal: true });
+            enforceNumericInput(document.getElementById('eeHeight'), { allowNegative: false, allowDecimal: true });
+            enforceNumericInput(document.getElementById('eeLineX'), { allowNegative: false, allowDecimal: true });
+            enforceNumericInput(document.getElementById('eeLineY'), { allowNegative: false, allowDecimal: true });
+            enforceNumericInput(document.getElementById('eeLineAngle'), { allowNegative: true, allowDecimal: true });
+            enforceNumericInput(document.getElementById('eeRadius'), { allowNegative: false, allowDecimal: true });
+            enforceNumericInput(document.getElementById('eeTextX'), { allowNegative: false, allowDecimal: true });
+            enforceNumericInput(document.getElementById('eeTextY'), { allowNegative: false, allowDecimal: true });
+            enforceNumericInput(document.getElementById('eeTextRotation'), { allowNegative: true, allowDecimal: true });
+            enforceNumericInput(document.getElementById('eeTextSize'), { allowNegative: false, allowDecimal: true });
+        }
+
         function updateConnectionStatus(connected) {
-            const status = document.getElementById('connectionStatus');
-            const text = document.getElementById('connectionText');
-            
-            if (connected) {
-                status.className = 'status-indicator status-connected';
-                text.textContent = 'Connected';
-            } else {
-                status.className = 'status-indicator status-disconnected';
-                text.textContent = 'Disconnected';
-            }
+            const el = document.getElementById('projectorStatus');
+            if (!el) return;
+            el.textContent = connected ? 'Connected' : 'Disconnected';
+            el.style.color = connected ? '#27ae60' : '#e74c3c';
         }
 
         // Tab switching
@@ -880,8 +1009,6 @@
             calibrationMode = true;
             document.getElementById('startCalibrationBtn').textContent = '🛑 Stop Calibration';
             document.getElementById('startCalibrationBtn').style.background = '#e74c3c';
-            document.getElementById('calibrationStatus').textContent = 'Drag the rectangle corners to align with press corners';
-            document.getElementById('calibrationStatus').style.color = '#e67e22';
             
             // Calculate initial rectangle (25% of screen, centered)
             const screenWidth = 1920; // Default projector resolution
@@ -911,8 +1038,6 @@
             calibrationMode = false;
             document.getElementById('startCalibrationBtn').textContent = '🎯 Start Interactive Calibration';
             document.getElementById('startCalibrationBtn').style.background = '#3498db';
-            document.getElementById('calibrationStatus').textContent = 'Calibration stopped';
-            document.getElementById('calibrationStatus').style.color = '#666';
             
             // Stop calibration on projector
             if (window.socket) {
@@ -1061,6 +1186,8 @@ function validateCalibration() {
 
         function sendLayoutUpdate() {
             if (window.socket) {
+                // Include elements in currentLayout
+                currentLayout.elements = elements;
                 window.socket.emit('layout_update', currentLayout);
             }
         }
@@ -1119,12 +1246,104 @@ function validateCalibration() {
         }
 
         function addImage() {
+            showImageSelection();
+        }
+
+        function showImageSelection() {
+            const modal = document.getElementById('imageSelectionModal');
+            const list = document.getElementById('imageSelectionList');
+            
+            // Close modal when clicking outside
+            modal.onclick = (e) => {
+                if (e.target === modal) closeImageSelection();
+            };
+            
+            // Show modal immediately
+            modal.style.display = 'flex';
+            
+            // Refresh files list and populate
+            loadFiles().then(() => {
+                populateImageSelectionList(list);
+            });
+        }
+
+        async function populateImageSelectionList(list) {
+            // Populate with uploaded images
+            list.innerHTML = '';
+            
+            console.log('Populating image selection with files:', files);
+            
+            if (files.length === 0) {
+                list.innerHTML = '<p style="grid-column: 1 / -1; text-align: center; color: #666;">No images uploaded yet. Upload images in the Files tab.</p>';
+            } else {
+                // Load base64 data for each file
+                for (const file of files) {
+                    const item = document.createElement('div');
+                    item.style.cssText = 'cursor: pointer; text-align: center; border: 2px solid #ddd; border-radius: 8px; padding: 0.5rem; transition: border-color 0.2s;';
+                    
+                    // Show loading state initially
+                    item.innerHTML = `
+                        <div style="width: 100%; height: 80px; display: flex; align-items: center; justify-content: center; border-radius: 4px; background: #f5f5f5;">
+                            <div style="font-size: 0.8rem; color: #999;">Loading...</div>
+                        </div>
+                        <p style="margin-top: 0.5rem; font-size: 0.85rem; color: #333; word-break: break-word;">${file.filename || 'Unknown'}</p>
+                    `;
+                    
+                    list.appendChild(item);
+                    
+                    // Load base64 data
+                    try {
+                        const response = await fetch(`/api/files/${file.filename}/base64`);
+                        const data = await response.json();
+                        
+                        if (data.data_url) {
+                            item.innerHTML = `
+                                <img src="${data.data_url}" style="width: 100%; height: 80px; object-fit: contain; border-radius: 4px; background: #f5f5f5;">
+                                <p style="margin-top: 0.5rem; font-size: 0.85rem; color: #333; word-break: break-word;">${file.filename || 'Unknown'}</p>
+                            `;
+                        } else {
+                            throw new Error('No data_url in response');
+                        }
+                    } catch (error) {
+                        console.error('Error loading image:', error);
+                        item.innerHTML = `
+                            <div style="width: 100%; height: 80px; display: flex; align-items: center; justify-content: center; border-radius: 4px; background: #f5f5f5; color: #999; font-size: 0.8rem;">
+                                Error loading image
+                            </div>
+                            <p style="margin-top: 0.5rem; font-size: 0.85rem; color: #333; word-break: break-word;">${file.filename || 'Unknown'}</p>
+                        `;
+                    }
+                    
+                    item.addEventListener('mouseenter', () => {
+                        item.style.borderColor = '#3498db';
+                    });
+                    item.addEventListener('mouseleave', () => {
+                        item.style.borderColor = '#ddd';
+                    });
+                    item.addEventListener('click', () => {
+                        selectImageForElement(file);
+                    });
+                }
+            }
+        }
+
+        function closeImageSelection() {
+            const modal = document.getElementById('imageSelectionModal');
+            modal.style.display = 'none';
+        }
+
+        function selectImageForElement(file) {
+            closeImageSelection();
+            
+            const pressW = parseFloat(document.getElementById('pressWidth').value) || 300;
+            const pressH = parseFloat(document.getElementById('pressHeight').value) || 200;
             const element = {
                 type: 'image',
-                position: [0, 0],
+                position: [pressW / 2, pressH / 2],
                 width: 40,
                 rotation: 0,
-                image_url: '',
+                image_url: file.url || '/uploads/' + file.filename,
+                color: '#00ffff',
                 label: 'Image ' + (elements.length + 1)
             };
             elements.push(element);
@@ -1167,8 +1386,72 @@ function validateCalibration() {
                         <button onclick="removeElement(${index})">Remove</button>
                     </div>
                 `;
+                if (index === selectedElementIndex) item.classList.add('selected');
+
+                // Click selects item and shows nudge controls; double-click blinks
+                item.addEventListener('click', function(e) {
+                    if (e.target.closest('button')) return;
+                    setSelectedElement(index);
+                });
+                item.addEventListener('dblclick', function(e) {
+                    if (e.target.closest('button')) return;
+                    blinkElement(index);
+                });
+                
                 list.appendChild(item);
             });
+
+            updateNudgeControlsVisibility();
+        }
+
+        // Global storage for blink timers
+        const blinkTimers = {};
+        
+        function blinkElement(index) {
+            // Find the SVG group with class el-{index}
+            if (!previewDraw) return;
+            
+            // Stop any existing blink animation for this element
+            if (blinkTimers[index]) {
+                clearTimeout(blinkTimers[index].timeout);
+                if (blinkTimers[index].group) {
+                    blinkTimers[index].group.opacity(1);
+                }
+            }
+            
+            const svgGroups = previewDraw.find('.el-' + index);
+            if (svgGroups && svgGroups.length > 0) {
+                const group = svgGroups[0];
+                
+                // Create blinking animation
+                const startTime = Date.now();
+                const duration = 3000; // 3 seconds
+                const blinkInterval = 500; // Blink every 0.5 seconds
+                let isVisible = true;
+                let timeoutId = null;
+                
+                const blink = () => {
+                    const elapsed = Date.now() - startTime;
+                    if (elapsed < duration) {
+                        isVisible = !isVisible;
+                        group.opacity(isVisible ? 1 : 0.2);
+                        timeoutId = setTimeout(blink, blinkInterval / 2);
+                    } else {
+                        // Restore normal state
+                        group.opacity(1);
+                        delete blinkTimers[index];
+                    }
+                };
+                
+                // Store timer reference
+                blinkTimers[index] = { group, timeout: timeoutId };
+                
+                // Start blinking immediately
+                isVisible = false;
+                group.opacity(0.2);
+                timeoutId = setTimeout(blink, blinkInterval / 2);
+                blinkTimers[index].timeout = timeoutId;
+            }
         }
 
         let eeIndex = -1;
@@ -1183,6 +1466,7 @@ function validateCalibration() {
             const lineFields = document.getElementById('eeLineFields');
             const circleFields = document.getElementById('eeCircleFields');
             const textFields = document.getElementById('eeTextFields');
+            const imageFields = document.getElementById('eeImageFields');
             const widthInput = document.getElementById('eeWidth');
             const heightInput = document.getElementById('eeHeight');
             const lineXInput = document.getElementById('eeLineX');
@@ -1194,6 +1478,8 @@ function validateCalibration() {
             const textRotInput = document.getElementById('eeTextRotation');
             const textSizeInput = document.getElementById('eeTextSize');
             const textContentInput = document.getElementById('eeTextContent');
+            const imageWidthInput = document.getElementById('eeImageWidth');
+            const imageRotationInput = document.getElementById('eeImageRotation');
 
             label.value = element.label || '';
             color.value = normalizeColorForInput(element.color || '#00ffff');
@@ -1201,6 +1487,7 @@ function validateCalibration() {
             lineFields.style.display = element.type === 'line' ? 'block' : 'none';
             circleFields.style.display = element.type === 'circle' ? 'block' : 'none';
             textFields.style.display = element.type === 'text' ? 'block' : 'none';
+            imageFields.style.display = element.type === 'image' ? 'block' : 'none';
             if (element.type === 'rectangle') {
                 widthInput.value = element.width != null ? element.width : '';
                 heightInput.value = element.height != null ? element.height : '';
@@ -1225,6 +1512,10 @@ function validateCalibration() {
                 textRotInput.value = element.rotation != null ? element.rotation : 0;
                 textSizeInput.value = element.font_size != null ? element.font_size : 10;
                 textContentInput.value = element.text != null ? element.text : '';
+            }
+            if (element.type === 'image') {
+                imageWidthInput.value = element.width != null ? element.width : '';
+                imageRotationInput.value = element.rotation != null ? element.rotation : 0;
             }
 
             // live color preview while picker is open
@@ -1311,6 +1602,11 @@ function validateCalibration() {
                 if (!Number.isNaN(tr)) element.rotation = tr;
                 if (!Number.isNaN(ts) && ts >= 0) element.font_size = ts;
                 element.text = tc;
+            } else if (element.type === 'image') {
+                const iw = parseFloat(document.getElementById('eeImageWidth').value);
+                const ir = parseFloat(document.getElementById('eeImageRotation').value);
+                if (!Number.isNaN(iw) && iw >= 0) element.width = iw;
+                if (!Number.isNaN(ir)) element.rotation = ir;
             }
 
             updateElementList();
@@ -1342,6 +1638,11 @@ function validateCalibration() {
 
         function removeElement(index) {
             elements.splice(index, 1);
+            if (selectedElementIndex === index) {
+                selectedElementIndex = -1;
+            } else if (selectedElementIndex > index) {
+                selectedElementIndex -= 1;
+            }
             updateElementList();
             sendLayoutUpdate();
             renderControlPreview();
@@ -1380,14 +1681,16 @@ function validateCalibration() {
         }
 
         function loadFiles() {
-            fetch('/api/files')
+            return fetch('/api/files')
             .then(response => response.json())
             .then(data => {
-                files = data.files;
+                files = data.files || [];
                 updateFileList();
+                return files;
             })
             .catch(error => {
                 showAlert('Error loading files: ' + error, 'error');
+                return [];
             });
         }
 
@@ -1436,7 +1739,6 @@ function validateCalibration() {
             .then(data => {
                 if (data.success) {
                     showAlert('Configuration saved successfully', 'success');
-                    document.getElementById('configName').value = '';
                     loadConfigurations();
                 } else {
                     showAlert('Save failed: ' + data.error, 'error');
@@ -1487,6 +1789,7 @@ function validateCalibration() {
                 
                 currentLayout = data.layout;
                 elements = data.elements || [];
+                selectedElementIndex = -1;
                 
                 updateLayoutForm();
                 updateElementList();
@@ -1517,15 +1820,12 @@ function validateCalibration() {
             document.getElementById('objectOrientation').value = currentLayout.object_orientation || 0;
             document.getElementById('centerLineH').value = currentLayout.center_lines?.horizontal || '';
             document.getElementById('centerLineV').value = currentLayout.center_lines?.vertical || '';
+            selectedElementIndex = -1;
+            updateNudgeControlsVisibility();
             renderControlPreview();
         }
 
         // Setup & Maintenance
-        function toggleBoundaryPattern() {
-            if (window.socket) {
-                window.socket.emit('toggle_boundary_pattern');
-            }
-        }
 
         // Utility functions
         function showAlert(message, type) {
@@ -1571,6 +1871,8 @@ function validateCalibration() {
                 window.socket.on('projector_resolution', (data) => {
                     projectorTarget = { width: data.width, height: data.height };
                     document.getElementById('previewSize').textContent = `${projectorTarget.width}×${projectorTarget.height}`;
+                    // Receiving projector resolution implies projector client is online
+                    updateConnectionStatus(true);
                 });
             }
 
@@ -1658,7 +1960,7 @@ function validateCalibration() {
                         .stroke({ color: '#000', width: 6, opacity: 0.001 })
                         .attr('pointer-events', 'stroke')
                         .css('cursor', 'grab');
-                    if (el.label) lg.text(el.label).font({ size: 3 }).fill('#fff').move((x1 + x2) / 2, (y1 + y2) / 2 - 2).attr('text-anchor', 'middle');
+                    if (el.label) lg.text(el.label).font({ size: 6 }).fill('#fff').move((x1 + x2) / 2, (y1 + y2) / 2 - 2).attr('text-anchor', 'middle');
                     if (typeof lg.draggable === 'function') {
                         lg.draggable();
                         lg.on('dragend', () => {
@@ -1681,7 +1983,10 @@ function validateCalibration() {
                     const rr = g.group();
                     if (r) rr.rotate(r, x + w / 2, y + h / 2);
                     const rect = rr.rect(w, h).move(x, y).fill('none').stroke({ color: el.color || '#0ff', width: 0.6 });
-                    if (el.label) rr.text(el.label).font({ size: 3 }).fill('#fff').move(x + w / 2, y + h / 2).attr('text-anchor', 'middle');
+                    if (el.label) {
+                        const txt = rr.text(el.label).font({ size: 6, anchor: 'middle' }).fill('#fff').center(x + w / 2, y + h / 2);
+                        txt.node.setAttribute('dominant-baseline', 'middle');
+                    }
                     // Enable plugin-based dragging and update model on drag end
                     if (typeof rr.draggable === 'function') {
                         rr.draggable();
@@ -1696,7 +2001,7 @@ function validateCalibration() {
                     const r = el.radius || 5;
                     const cg = g.group();
                     const cc = cg.circle(r * 2).move(x - r, y - r).fill('none').stroke({ color: el.color || '#0ff', width: 0.6 });
-                    if (el.label) cg.text(el.label).font({ size: 3 }).fill('#fff').move(x, y + 2).attr('text-anchor', 'middle');
+                    if (el.label) cg.text(el.label).font({ size: 6 }).fill('#fff').move(x, y + 2).attr('text-anchor', 'middle');
                     if (typeof cg.draggable === 'function') {
                         cg.draggable();
                         cg.on('dragend', () => {
@@ -1726,10 +2031,15 @@ function validateCalibration() {
                     const [x, y] = el.position || [0, 0];
                     const w = el.width || 20;
                     const r = el.rotation || 0;
+                    const color = el.color || '#00ffff';
                     const ig = g.group();
-                    const img = ig.image(el.image_url || '').size(w, w).move(x, y);
+                    // Draw image with 50% opacity
+                    const img = ig.image(el.image_url || '').size(w, w).move(x, y).opacity(0.5);
                     if (r) img.rotate(r, x + w / 2, y + w / 2);
-                    if (el.label) ig.text(el.label).font({ size: 3 }).fill('#fff').move(x + w / 2, y + w / 2).attr('text-anchor', 'middle');
+                    // Draw colored border rectangle
+                    const border = ig.rect(w, w).move(x, y).fill('none').stroke({ color: color, width: 0.6 });
+                    if (r) border.rotate(r, x + w / 2, y + w / 2);
+                    if (el.label) ig.text(el.label).font({ size: 6 }).fill('#fff').move(x + w / 2, y + w / 2).attr('text-anchor', 'middle');
                     if (typeof ig.draggable === 'function') {
                         ig.draggable();
                         ig.on('dragend', () => {
@@ -1805,7 +2115,7 @@ function validateCalibration() {
                 const pressW = parseFloat(document.getElementById('pressWidth').value) || 300;
                 const pressH = parseFloat(document.getElementById('pressHeight').value) || 200;
                 const inner = rootSvgNode.innerHTML || '';
-                const svgString = `\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${pressW} ${pressH}" preserveAspectRatio="none">\n${inner}\n</svg>`;
+                const svgString = `\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${pressW} ${pressH}" preserveAspectRatio="none">\n${inner}\n</svg>`;
                 window.socket.emit('render_svg', {
                     svg: svgString,
                     target_width: projectorTarget.width,
@@ -1834,6 +2144,83 @@ function validateCalibration() {
             .catch(err => showAlert('Error saving press size: ' + err, 'error'));
         }
 
+        // ===== Selection & Nudge/Rotate Controls =====
+        function setSelectedElement(index) {
+            selectedElementIndex = index;
+            updateElementList();
+            updateNudgeControlsVisibility();
+        }
+
+        function updateNudgeControlsVisibility() {
+            const nc = document.getElementById('nudgeControls');
+            if (!nc) return;
+            nc.style.display = (selectedElementIndex >= 0 && elements[selectedElementIndex]) ? 'block' : 'none';
+        }
+
+        function nudgeSelected(dx_mm, dy_mm) {
+            if (selectedElementIndex < 0) return;
+            const el = elements[selectedElementIndex];
+            if (!el) return;
+            if (el.type === 'line') {
+                const [x1,y1] = el.start || [0,0];
+                const [x2,y2] = el.end || [0,0];
+                el.start = [x1 + dx_mm, y1 + dy_mm];
+                el.end   = [x2 + dx_mm, y2 + dy_mm];
+            } else if (el.type === 'rectangle' || el.type === 'circle' || el.type === 'text' || el.type === 'image') {
+                const [x,y] = el.position || [0,0];
+                el.position = [x + dx_mm, y + dy_mm];
+            }
+            sendLayoutUpdate();
+            renderControlPreview();
+            updateElementList();
+        }
+
+        function rotateSelected(deltaRadians) {
+            if (selectedElementIndex < 0) return;
+            const el = elements[selectedElementIndex];
+            if (!el) return;
+            // Convert radians to degrees for elements that store rotation in degrees
+            const deltaDeg = deltaRadians * 180 / Math.PI;
+            if (el.type === 'rectangle' || el.type === 'text' || el.type === 'image') {
+                const r = Number(el.rotation || 0);
+                el.rotation = r + deltaDeg;
+            } else if (el.type === 'line') {
+                const [x1,y1] = el.start || [0,0];
+                const [x2,y2] = el.end || [0,0];
+                const mx = (x1 + x2) / 2;
+                const my = (y1 + y2) / 2;
+                const cx1 = x1 - mx, cy1 = y1 - my;
+                const cx2 = x2 - mx, cy2 = y2 - my;
+                const cosA = Math.cos(deltaRadians);
+                const sinA = Math.sin(deltaRadians);
+                const rx1 = cx1 * cosA - cy1 * sinA;
+                const ry1 = cx1 * sinA + cy1 * cosA;
+                const rx2 = cx2 * cosA - cy2 * sinA;
+                const ry2 = cx2 * sinA + cy2 * cosA;
+                el.start = [mx + rx1, my + ry1];
+                el.end   = [mx + rx2, my + ry2];
+            }
+            sendLayoutUpdate();
+            renderControlPreview();
+            updateElementList();
+        }
+
+        function initKeyboardShortcuts() {
+            document.addEventListener('keydown', (e) => {
+                const active = document.activeElement;
+                const isInput = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA');
+                const editorOpen = document.getElementById('elementEditor')?.style.display === 'flex';
+                if (isInput || editorOpen) return;
+
+                if (e.key === 'ArrowUp') { e.preventDefault(); nudgeSelected(0, -1); }
+                else if (e.key === 'ArrowDown') { e.preventDefault(); nudgeSelected(0, 1); }
+                else if (e.key === 'ArrowLeft' && !e.shiftKey) { e.preventDefault(); nudgeSelected(-1, 0); }
+                else if (e.key === 'ArrowRight' && !e.shiftKey) { e.preventDefault(); nudgeSelected(1, 0); }
+                else if (e.shiftKey && e.key === 'ArrowLeft') { e.preventDefault(); rotateSelected(-Math.PI/180); }
+                else if (e.shiftKey && e.key === 'ArrowRight') { e.preventDefault(); rotateSelected(Math.PI/180); }
+            });
+        }
+
         // Initialize preview after DOM is ready (with SVG.js availability check)
         document.addEventListener('DOMContentLoaded', function() {
             const container = document.getElementById('layoutPreview');
@@ -1843,6 +2230,7 @@ function validateCalibration() {
                 return;
             }
             initControlPreview();
+            initKeyboardShortcuts();
         });
     </script>
 </body>

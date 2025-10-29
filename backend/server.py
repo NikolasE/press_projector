@@ -12,6 +12,7 @@ import base64
 import numpy as np
 import cv2
 import cairosvg
+from threading import Timer
 
 from database import FileBasedDB
 from calibration import Calibrator
@@ -50,7 +51,43 @@ projector_resolution = {
 # Debug flag: bypass warp when True (debug preview)
 debug_bypass_warp = False
 
+# Periodic update timer
+periodic_update_timer = None
+
 # Use fixed 2x supersampling when rasterizing SVG prior to warping
+
+def broadcast_layout_update():
+    """Broadcast current layout to all projectors."""
+    global periodic_update_timer
+    try:
+        if connected_clients['projector']:
+            layout_data = projector.get_layout_data()
+            svg_content = projector.generate_svg()
+            socketio.emit('layout_updated', {
+                'layout': layout_data,
+                'svg': svg_content
+            }, room='projector')
+    except Exception as e:
+        print(f"Error broadcasting layout update: {e}")
+    
+    # Schedule next update in 2 seconds
+    periodic_update_timer = Timer(2.0, broadcast_layout_update)
+    periodic_update_timer.start()
+
+def start_periodic_updates():
+    """Start periodic updates to projector."""
+    global periodic_update_timer
+    if periodic_update_timer:
+        periodic_update_timer.cancel()
+    periodic_update_timer = Timer(2.0, broadcast_layout_update)
+    periodic_update_timer.start()
+
+def stop_periodic_updates():
+    """Stop periodic updates."""
+    global periodic_update_timer
+    if periodic_update_timer:
+        periodic_update_timer.cancel()
+        periodic_update_timer = None
 
 
 @app.route('/')
@@ -259,26 +296,7 @@ def get_layout():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/boundary-pattern', methods=['POST'])
-def toggle_boundary_pattern():
-    """Toggle press boundary pattern visibility."""
-    try:
-        data = request.get_json()
-        visible = data.get('visible', False)
-        
-        projector.set_boundary_pattern_visibility(visible)
-        
-        # Generate and send updated SVG
-        svg_content = projector.generate_svg()
-        socketio.emit('boundary_pattern_toggled', {
-            'visible': visible,
-            'svg': svg_content
-        }, room='projector')
-        
-        return jsonify({'success': True, 'visible': visible})
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+# Removed unused /api/boundary-pattern endpoint (no callers in frontend)
 
 
 @app.route('/api/upload', methods=['POST'])
@@ -305,6 +323,36 @@ def list_files():
     try:
         files = file_manager.list_files()
         return jsonify({'files': files})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/files/<filename>/base64', methods=['GET'])
+def get_file_base64(filename):
+    """Get file as base64 encoded data URL."""
+    try:
+        filepath = os.path.join(file_manager.upload_dir, filename)
+        if not os.path.exists(filepath):
+            return jsonify({'error': 'File not found'}), 404
+        
+        # Read file and encode as base64
+        with open(filepath, 'rb') as f:
+            file_data = f.read()
+        
+        # Get file extension to determine MIME type
+        ext = filename.rsplit('.', 1)[-1].lower()
+        mime_types = {
+            'png': 'image/png',
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+            'svg': 'image/svg+xml'
+        }
+        mime_type = mime_types.get(ext, 'application/octet-stream')
+        
+        b64_data = base64.b64encode(file_data).decode('ascii')
+        data_url = f'data:{mime_type};base64,{b64_data}'
+        
+        return jsonify({'data_url': data_url})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -456,13 +504,13 @@ def handle_request_update():
         calibrator.load_calibration_data(calibration_data)
         emit('calibration_updated', calibration_data)
     
-    # Send current layout
+    # Send current layout to projector room
     layout_data = projector.get_layout_data()
     svg_content = projector.generate_svg()
     emit('layout_updated', {
         'layout': layout_data,
         'svg': svg_content
-    })
+    }, room='projector')
 
 
 @socketio.on('layout_update')
@@ -497,23 +545,7 @@ def handle_layout_update(data):
         print(f"Error handling layout update: {e}")
 
 
-@socketio.on('toggle_boundary_pattern')
-def handle_toggle_boundary_pattern():
-    """Handle boundary pattern toggle."""
-    try:
-        # Toggle boundary pattern visibility
-        current_visibility = projector.show_boundary_pattern
-        projector.set_boundary_pattern_visibility(not current_visibility)
-        
-        # Generate and send updated SVG
-        svg_content = projector.generate_svg()
-        emit('boundary_pattern_toggled', {
-            'visible': not current_visibility,
-            'svg': svg_content
-        }, room='projector')
-        
-    except Exception as e:
-        print(f"Error toggling boundary pattern: {e}")
+# Removed unused websocket handler 'toggle_boundary_pattern'
 
 
 @socketio.on('show_validation_pattern')
@@ -719,6 +751,10 @@ if __name__ == '__main__':
     if calibration_data:
         calibrator.load_calibration_data(calibration_data)
         print("Loaded existing calibration data")
+    
+    # Start periodic updates
+    start_periodic_updates()
+    print("Started periodic layout updates (every 2 seconds)")
     
     # Start server
     print("Starting Press Projector Server...")

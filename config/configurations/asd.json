@@ -1,8 +1,8 @@
 {
   "layout": {
     "center_lines": {
-      "horizontal": 39,
-      "vertical": 19
+      "horizontal": 102,
+      "vertical": 117
     },
     "elements": [],
     "object_orientation": 0
@@ -11,29 +11,40 @@
     {
       "color": "#00ffff",
       "end": [
-        58.22315121943374,
+        133.22315121943373,
         37.09223813239876
       ],
       "label": "Line 1",
       "start": [
-        -8.223151219433738,
+        66.77684878056627,
         12.907761867601238
       ],
       "type": "line"
     },
     {
-      "type": "text",
+      "color": "#00ffff",
+      "font_size": 10,
+      "label": "Temp",
       "position": [
-        200,
-        100
+        3.117319345474243,
+        182.69073486328125
       ],
       "rotation": 0,
-      "font_size": 10,
-      "text": "Sample Text",
-      "color": "#00ffff",
-      "label": "Text 2"
+      "text": "180, 2min",
+      "type": "text"
+    },
+    {
+      "height": 30,
+      "label": "Rectangle 3",
+      "position": [
+        118.99781036376953,
+        123.0639877319336
+      ],
+      "rotation": 0,
+      "type": "rectangle",
+      "width": 50
     }
   ],
   "config_name": "asd",
-  "timestamp": "2025-10-29T21:48:55.766205"
+  "timestamp": "2025-10-29T23:14:10.560782"
 }
