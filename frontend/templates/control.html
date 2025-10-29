@@ -1,0 +1,1774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Press Projector Control</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="manifest" href="/static/site.webmanifest">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            overflow-x: hidden;
+        }
+
+        .header {
+            background: #2c3e50;
+            color: white;
+            padding: 1rem;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .main-container {
+            display: flex;
+            min-height: calc(100vh - 80px);
+        }
+
+        .sidebar {
+            width: 300px;
+            background: white;
+            border-right: 1px solid #ddd;
+            padding: 1rem;
+            overflow-y: auto;
+        }
+
+        .content {
+            flex: 1;
+            padding: 1rem;
+            overflow-y: auto;
+        }
+
+        .tab-container {
+            display: none;
+        }
+
+        .tab-container.active {
+            display: block;
+        }
+
+        .tab-buttons {
+            display: flex;
+            background: #ecf0f1;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            overflow: hidden;
+        }
+
+        .tab-button {
+            flex: 1;
+            padding: 0.75rem;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .tab-button.active {
+            background: #3498db;
+            color: white;
+        }
+
+        .tab-button:hover:not(.active) {
+            background: #bdc3c7;
+        }
+
+        .setup-tab-button {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: #e74c3c;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            z-index: 1000;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }
+
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 1rem;
+        }
+
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+            outline: none;
+            border-color: #3498db;
+            box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+        }
+
+        .btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: background 0.2s;
+        }
+
+        .btn:hover {
+            background: #2980b9;
+        }
+
+        .btn:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+        }
+
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+
+        .btn-success {
+            background: #27ae60;
+        }
+
+        .btn-success:hover {
+            background: #229954;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 0.5rem;
+        }
+
+        .status-connected {
+            background: #27ae60;
+        }
+
+        .status-disconnected {
+            background: #e74c3c;
+        }
+
+        .calibration-points {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .calibration-point {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 1rem;
+            background: #f8f9fa;
+        }
+
+        .calibration-point h4 {
+            margin-bottom: 0.5rem;
+            color: #2c3e50;
+        }
+
+        .coordinate-inputs {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .coordinate-inputs input {
+            flex: 1;
+        }
+
+        .layout-canvas {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            background: white;
+            position: relative;
+            min-height: 400px;
+            margin-bottom: 1rem;
+        }
+
+        .element-list {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 0.5rem;
+        }
+
+        .element-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem;
+            border-bottom: 1px solid #eee;
+        }
+
+        .element-item:last-child {
+            border-bottom: none;
+        }
+
+        .element-controls {
+            display: flex;
+            gap: 0.25rem;
+        }
+
+        .element-controls button {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.8rem;
+            border: 1px solid #ddd;
+            background: white;
+            cursor: pointer;
+            border-radius: 2px;
+        }
+
+        .element-controls button:hover {
+            background: #f8f9fa;
+        }
+
+        .file-upload {
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            padding: 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+
+        .file-upload:hover {
+            border-color: #3498db;
+        }
+
+        .file-upload.dragover {
+            border-color: #3498db;
+            background: #f8f9fa;
+        }
+
+        .file-list {
+            margin-top: 1rem;
+        }
+
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 0.5rem;
+        }
+
+        .alert {
+            padding: 1rem;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .alert-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        @media (max-width: 768px) {
+            .main-container {
+                flex-direction: column;
+            }
+            
+            .sidebar {
+                width: 100%;
+                border-right: none;
+                border-bottom: 1px solid #ddd;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Press Projector Control</h1>
+        <div>
+            <span class="status-indicator" id="connectionStatus"></span>
+            <span id="connectionText">Connecting...</span>
+        </div>
+    </div>
+
+    <button class="setup-tab-button" onclick="toggleSetupMode()">Setup & Maintenance</button>
+
+    <div class="main-container">
+        <div class="sidebar">
+            <div class="tab-buttons">
+                <button class="tab-button active" onclick="switchTab('calibration')">Calibration</button>
+                <button class="tab-button" onclick="switchTab('layout')">Layout</button>
+                <button class="tab-button" onclick="switchTab('files')">Files</button>
+                <button class="tab-button" onclick="switchTab('configurations')">Configurations</button>
+            </div>
+
+            <!-- Calibration Tab -->
+            <div id="calibration-tab" class="tab-container active">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h3>Press Calibration</h3>
+                    <button class="btn" onclick="toggleCalibrationGuide()" style="background: #3498db; padding: 0.5rem 1rem; font-size: 0.9rem;">
+                        📖 View Calibration Guide
+                    </button>
+                </div>
+                
+                <!-- Calibration Guide (Hidden by default) -->
+                <div id="calibrationGuide" class="tab-container" style="display: none; margin-bottom: 1rem; padding: 1rem; background: #f8f9fa; border-radius: 8px; border: 1px solid #ddd; max-height: 600px; overflow-y: auto;">
+                    <h4>Calibration Guide</h4>
+                    <div id="calibrationGuideContent"></div>
+                </div>
+                
+                <div class="form-group">
+                    <label>Press Dimensions (mm)</label>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <input type="number" id="pressWidth" placeholder="Width" step="0.1" oninput="renderControlPreview()" onchange="renderControlPreview()">
+                        <input type="number" id="pressHeight" placeholder="Height" step="0.1" oninput="renderControlPreview()" onchange="renderControlPreview()">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <button class="btn" onclick="toggleInteractiveCalibration()" id="startCalibrationBtn">
+                            🎯 Start Interactive Calibration
+                        </button>
+                        <span id="calibrationStatus" style="color: #666; font-style: italic;">
+                            Click to start calibration
+                        </span>
+                    </div>
+                </div>
+
+
+                <button class="btn btn-success" onclick="saveCalibration()">Save Calibration</button>
+                <button class="btn" onclick="loadCalibration()">Load Calibration</button>
+                <button class="btn" onclick="validateCalibration()">Validate Quality</button>
+                
+                <div id="calibrationQuality" style="margin-top: 1rem; display: none;">
+                    <div class="alert" id="calibrationQualityAlert">
+                        <h4>Calibration Quality</h4>
+                        <div id="calibrationQualityDetails"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Layout Tab -->
+            <div id="layout-tab" class="tab-container">
+                <h3>Layout Editor</h3>
+                
+                <div class="form-group">
+                    <label>Object Orientation (degrees)</label>
+                    <div style="display:flex; align-items:center; gap:0.5rem;">
+                        <input type="number" id="objectOrientation" placeholder="0" step="0.1" oninput="updateObjectOrientation()" onchange="updateObjectOrientation()" style="width:18ch;">
+                        <button class="btn" style="padding:0.4rem 0.6rem; font-size:0.9rem;" onclick="resetOrientation()">Reset</button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Center Lines (mm)</label>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <input type="number" id="centerLineH" placeholder="Horizontal Y" step="1" oninput="updateCenterLines()" onchange="updateCenterLines()">
+                        <input type="number" id="centerLineV" placeholder="Vertical X" step="1" oninput="updateCenterLines()" onchange="updateCenterLines()">
+                    </div>
+                </div>
+
+                <h4>Drawing Tools</h4>
+                <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                    <button class="btn" onclick="addLine()">Add Line</button>
+                    <button class="btn" onclick="addRectangle()">Add Rectangle</button>
+                    <button class="btn" onclick="addCircle()">Add Circle</button>
+                    <button class="btn" onclick="addImage()">Add Image</button>
+                </div>
+
+                <h4>Elements</h4>
+                <div class="element-list" id="elementList">
+                    <!-- Elements will be added here dynamically -->
+                </div>
+            </div>
+
+            <!-- Files Tab -->
+            <div id="files-tab" class="tab-container">
+                <h3>File Management</h3>
+                
+                <div class="file-upload" id="fileUpload" onclick="document.getElementById('fileInput').click()">
+                    <p>Click to upload or drag files here</p>
+                    <input type="file" id="fileInput" style="display: none" multiple accept=".png,.jpg,.jpeg,.svg" onchange="handleFileUpload()">
+                </div>
+
+                <div class="file-list" id="fileList">
+                    <!-- Files will be listed here -->
+                </div>
+            </div>
+
+            <!-- Configurations Tab -->
+            <div id="configurations-tab" class="tab-container">
+                <h3>Saved Configurations</h3>
+                
+                <div class="form-group">
+                    <input type="text" id="configName" placeholder="Configuration name">
+                    <button class="btn btn-success" onclick="saveConfiguration()">Save Current</button>
+                </div>
+
+                <div class="element-list" id="configurationList">
+                    <!-- Configurations will be listed here -->
+                </div>
+            </div>
+        </div>
+
+        <div class="content">
+            <div id="main-content">
+                <h2>Press Projector System</h2>
+                <p>Use the sidebar to calibrate the system and create layout configurations.</p>
+                
+                <div id="alerts">
+                    <!-- Alerts will be shown here -->
+                </div>
+
+                <!-- Real-time Control Preview (press area only) -->
+                <div id="layoutPreviewContainer" style="margin-top: 1rem; background:#1a1a1a; border:1px solid #333; border-radius:8px; padding:8px;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; color:#ddd; margin-bottom:8px;">
+                        <span>Control Preview (press area)</span>
+                        <span id="previewSize" style="font-size:0.85rem; opacity:0.8;"></span>
+                    </div>
+                    <div id="layoutPreview" style="width:100%; height:60vh; display:flex; align-items:center; justify-content:center; background:#111; border-radius:4px; overflow:hidden;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Setup & Maintenance Tab (Hidden by default) -->
+    <div id="setup-tab" class="tab-container" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; z-index: 9999; padding: 2rem;">
+        <div style="max-width: 800px; margin: 0 auto;">
+            <h2>Setup & Maintenance</h2>
+            
+            <div class="form-group">
+                <h3>Press Boundary Pattern</h3>
+                <p>Use this to verify projector alignment after movement.</p>
+                <button class="btn" onclick="toggleBoundaryPattern()">Toggle Boundary Pattern</button>
+            </div>
+
+            <div class="form-group">
+                <h3>System Status</h3>
+                <div id="systemStatus">
+                    <p>Calibration: <span id="calibrationStatus">Not calibrated</span></p>
+                    <p>Projector: <span id="projectorStatus">Disconnected</span></p>
+                </div>
+            </div>
+
+            <button class="btn btn-danger" onclick="toggleSetupMode()">Close Setup</button>
+        </div>
+    </div>
+
+    <!-- Element Editor Modal -->
+    <div id="elementEditor" style="display:none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center;">
+        <div style="background: white; padding: 1rem; border-radius: 8px; width: 320px; max-width: 90vw; box-shadow: 0 10px 30px rgba(0,0,0,0.25);">
+            <h3 style="margin-bottom: 0.75rem;">Edit Element</h3>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+                <label>Label</label>
+                <input type="text" id="eeLabel">
+            </div>
+            <div id="eeRectFields" style="display:none;">
+                <div class="form-group" style="margin-bottom:0.75rem;">
+                    <label>Width (mm)</label>
+                    <input type="number" id="eeWidth" step="0.1" min="0">
+                </div>
+                <div class="form-group" style="margin-bottom:0.75rem;">
+                    <label>Height (mm)</label>
+                    <input type="number" id="eeHeight" step="0.1" min="0">
+                </div>
+            </div>
+            <div id="eeLineFields" style="display:none;">
+                <div class="form-group" style="margin-bottom:0.75rem; display:flex; gap:0.5rem;">
+                    <div style="flex:1;">
+                        <label>X (mm)</label>
+                        <input type="number" id="eeLineX" step="0.1">
+                    </div>
+                    <div style="flex:1;">
+                        <label>Y (mm)</label>
+                        <input type="number" id="eeLineY" step="0.1">
+                    </div>
+                </div>
+                <div class="form-group" style="margin-bottom:0.75rem;">
+                    <label>Rotation (deg)</label>
+                    <input type="number" id="eeLineAngle" step="0.1">
+                    <div style="font-size:0.85rem; color:#666; margin-top:0.25rem;">Length stays unchanged; edits reposition and rotate the line.</div>
+                </div>
+            </div>
+            <div id="eeCircleFields" style="display:none;">
+                <div class="form-group" style="margin-bottom:0.75rem;">
+                    <label>Radius (mm)</label>
+                    <input type="number" id="eeRadius" step="0.1" min="0">
+                </div>
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+                <label>Color</label>
+                <input type="color" id="eeColor">
+            </div>
+            <div style="display:flex; gap:0.5rem; justify-content:flex-end; margin-top: 0.5rem;">
+                <button class="btn" style="background:#7f8c8d;" onclick="closeElementEditor()">Cancel</button>
+                <button class="btn btn-success" onclick="saveElementEditor()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <!-- SVG.js for frontend SVG composition and interactions -->
+    <script src="https://cdn.jsdelivr.net/npm/@svgdotjs/svg.js@3.2/dist/svg.min.js"></script>
+    <!-- SVG.js draggable plugin -->
+    <script src="https://cdn.jsdelivr.net/npm/@svgdotjs/svg.draggable.js@3.0.3/dist/svg.draggable.min.js"></script>
+    <script src="/static/common.js"></script>
+    <script>
+        // Global state
+        let currentLayout = {
+            object_orientation: 0,
+            center_lines: { horizontal: null, vertical: null },
+            elements: []
+        };
+
+        let elements = [];
+        let files = [];
+        let configurations = [];
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeWebSocket();
+            loadFiles();
+            loadConfigurations();
+            updateElementList();
+        });
+
+        // WebSocket connection
+        function initializeWebSocket() {
+            // Get the base URL from current location
+            const baseUrl = window.location.origin;
+            const socket = io(baseUrl, {
+                transports: ['websocket', 'polling'],
+                reconnection: true,
+                reconnectionDelay: 1000,
+                reconnectionAttempts: 10
+            });
+            
+            socket.on('connect', function() {
+                updateConnectionStatus(true);
+                socket.emit('join_room', { room: 'control' });
+            });
+
+            socket.on('disconnect', function() {
+                updateConnectionStatus(false);
+            });
+
+            socket.on('calibration_updated', function(data) {
+                console.log('Calibration updated:', data);
+                const cal = (data && data.calibration) ? data.calibration : data;
+                if (cal && (cal.press_width_mm != null || cal.press_height_mm != null)) {
+                    setPressInputs(cal.press_width_mm, cal.press_height_mm);
+                    renderControlPreview();
+                }
+                showAlert('Calibration updated successfully', 'success');
+            });
+
+            socket.on('layout_updated', function(data) {
+                console.log('Layout updated:', data);
+                currentLayout = data.layout;
+                updateLayoutForm();
+            });
+
+            socket.on('calibration_point_dragged', function(data) {
+                console.log('Calibration point dragged:', data);
+                updateCalibrationPoint(calibrationPoints[data.index].id, data.x, data.y);
+            });
+
+            // Store socket globally
+            window.socket = socket;
+        }
+
+        function updateConnectionStatus(connected) {
+            const status = document.getElementById('connectionStatus');
+            const text = document.getElementById('connectionText');
+            
+            if (connected) {
+                status.className = 'status-indicator status-connected';
+                text.textContent = 'Connected';
+            } else {
+                status.className = 'status-indicator status-disconnected';
+                text.textContent = 'Disconnected';
+            }
+        }
+
+        // Tab switching
+        function switchTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-container').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Remove active class from buttons
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // Show selected tab
+            document.getElementById(tabName + '-tab').classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        // Setup mode toggle
+        function toggleSetupMode() {
+            const setupTab = document.getElementById('setup-tab');
+            setupTab.style.display = setupTab.style.display === 'none' ? 'block' : 'none';
+        }
+
+        // Calibration functions
+        let calibrationMode = false;
+        let calibrationPoints = [
+            { id: 'tl', x: 0, y: 0, label: 'Top Left' },
+            { id: 'tr', x: 0, y: 0, label: 'Top Right' },
+            { id: 'br', x: 0, y: 0, label: 'Bottom Right' },
+            { id: 'bl', x: 0, y: 0, label: 'Bottom Left' }
+        ];
+
+        function toggleCalibrationGuide() {
+            const guideDiv = document.getElementById('calibrationGuide');
+            const button = event.target;
+            
+            if (guideDiv.style.display === 'none') {
+                guideDiv.style.display = 'block';
+                button.textContent = '📖 Hide Calibration Guide';
+                loadCalibrationGuide();
+            } else {
+                guideDiv.style.display = 'none';
+                button.textContent = '📖 View Calibration Guide';
+            }
+        }
+
+        function loadCalibrationGuide() {
+            const contentDiv = document.getElementById('calibrationGuideContent');
+            
+            // Guide content in HTML format
+            const guideHTML = `
+                <div style="line-height: 1.6;">
+                    <h5 style="color: #2c3e50; margin-top: 0;">How Calibration Works</h5>
+                    <p>The calibration system uses <strong>OpenCV's perspective transformation</strong> to map points from the projector's coordinate system (pixels) to the press's physical coordinate system (millimeters). This corrects for:</p>
+                    <ul>
+                        <li><strong>Perspective distortion</strong> when the projector is not perfectly perpendicular to the press</li>
+                        <li><strong>Scale differences</strong> between projector pixels and real-world measurements</li>
+                        <li><strong>Rotation</strong> if the projector is slightly rotated</li>
+                    </ul>
+
+                    <h5 style="color: #2c3e50; margin-top: 1.5rem;">Step-by-Step Instructions</h5>
+                    
+                    <h6 style="color: #3498db; margin-top: 1rem;">Step 1: Measure Press Dimensions</h6>
+                    <ol>
+                        <li><strong>Measure the press area</strong> that will be used for printing
+                            <ul>
+                                <li>Measure <strong>width</strong> in millimeters (left to right)</li>
+                                <li>Measure <strong>height</strong> in millimeters (top to bottom)</li>
+                                <li>Note: Measure the actual usable press area, not the entire press</li>
+                            </ul>
+                        </li>
+                        <li><strong>Enter dimensions</strong> in the calibration form above</li>
+                    </ol>
+
+                    <h6 style="color: #3498db; margin-top: 1rem;">Step 2: Mark Corner Points</h6>
+                    <p>You need to mark <strong>4 corner points</strong> where the projector image corners align with the press corners.</p>
+                    
+                    <div style="background: #e8f4f8; padding: 1rem; border-radius: 4px; margin: 0.5rem 0;">
+                        <strong>Option A: Using Projector View (Recommended)</strong>
+                        <ol>
+                            <li>Open the <strong>Setup & Maintenance</strong> tab (red button in top-right)</li>
+                            <li>Click <strong>"Toggle Boundary Pattern"</strong> to show a rectangle outline</li>
+                            <li>Position the projector so the rectangle aligns with the press corners</li>
+                            <li>Note the pixel coordinates shown at each corner</li>
+                        </ol>
+                    </div>
+
+                    <div style="background: #fff3cd; padding: 1rem; border-radius: 4px; margin: 0.5rem 0;">
+                        <strong>Option B: Manual Point Entry</strong>
+                        <ol>
+                            <li>On the <strong>press area</strong>, mark the 4 corners</li>
+                            <li>For each corner, determine the <strong>projector pixel coordinates</strong></li>
+                            <li>Enter these values in the calibration form</li>
+                        </ol>
+                    </div>
+
+                    <h6 style="color: #3498db; margin-top: 1rem;">Step 3: Enter Calibration Points</h6>
+                    <p>Enter the corner points in the form above. Points must be entered in <strong>clockwise or counter-clockwise order</strong> starting from top-left.</p>
+
+                    <h6 style="color: #3498db; margin-top: 1rem;">Step 4: Save Calibration</h6>
+                    <ol>
+                        <li>Click <strong>"Save Calibration"</strong></li>
+                        <li>The system will automatically validate the calibration quality</li>
+                        <li>Check the quality metrics displayed below</li>
+                    </ol>
+
+                    <h6 style="color: #3498db; margin-top: 1rem;">Step 5: Verify Calibration Quality</h6>
+                    <p>After saving, check the <strong>calibration quality metrics</strong>:</p>
+                    <ul>
+                        <li><strong>Maximum Error</strong>: Should be <strong>&lt; 1.0 mm</strong></li>
+                        <li><strong>Average Error</strong>: Should be <strong>&lt; 0.5 mm</strong></li>
+                        <li><strong>Status</strong>: Should show <strong>"Valid"</strong></li>
+                    </ul>
+
+                    <h5 style="color: #2c3e50; margin-top: 1.5rem;">Quality Guidelines</h5>
+                    <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+                        <thead>
+                            <tr style="background: #f8f9fa;">
+                                <th style="padding: 0.5rem; border: 1px solid #ddd;">Quality Level</th>
+                                <th style="padding: 0.5rem; border: 1px solid #ddd;">Max Error</th>
+                                <th style="padding: 0.5rem; border: 1px solid #ddd;">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td style="padding: 0.5rem; border: 1px solid #ddd; color: #27ae60;"><strong>Excellent</strong></td>
+                                <td style="padding: 0.5rem; border: 1px solid #ddd;">&lt; 0.5 mm</td>
+                                <td style="padding: 0.5rem; border: 1px solid #ddd;">✓ Perfect</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 0.5rem; border: 1px solid #ddd; color: #27ae60;"><strong>Good</strong></td>
+                                <td style="padding: 0.5rem; border: 1px solid #ddd;">&lt; 1.0 mm</td>
+                                <td style="padding: 0.5rem; border: 1px solid #ddd;">✓ Acceptable</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 0.5rem; border: 1px solid #ddd; color: #3498db;"><strong>Acceptable</strong></td>
+                                <td style="padding: 0.5rem; border: 1px solid #ddd;">&lt; 2.0 mm</td>
+                                <td style="padding: 0.5rem; border: 1px solid #ddd;">⚠ Works but could improve</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 0.5rem; border: 1px solid #ddd; color: #e74c3c;"><strong>Poor</strong></td>
+                                <td style="padding: 0.5rem; border: 1px solid #ddd;">&gt; 2.0 mm</td>
+                                <td style="padding: 0.5rem; border: 1px solid #ddd;">✗ Recalibration required</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <h5 style="color: #2c3e50; margin-top: 1.5rem;">Visual Verification</h5>
+                    <ol>
+                        <li><strong>Use Boundary Pattern</strong>:
+                            <ul>
+                                <li>Go to Setup & Maintenance</li>
+                                <li>Toggle boundary pattern ON</li>
+                                <li>The yellow rectangle should align perfectly with press corners</li>
+                                <li>Check all 4 corners match exactly</li>
+                            </ul>
+                        </li>
+                        <li><strong>Test with Known Points</strong>:
+                            <ul>
+                                <li>Place an object at a known position (e.g., 50mm from left, 50mm from top)</li>
+                                <li>Create a guide element at that position</li>
+                                <li>Verify the projected guide aligns with the object</li>
+                            </ul>
+                        </li>
+                    </ol>
+
+                    <h5 style="color: #2c3e50; margin-top: 1.5rem;">Common Issues & Solutions</h5>
+                    
+                    <div style="background: #f8d7da; padding: 1rem; border-radius: 4px; margin: 0.5rem 0; border-left: 4px solid #e74c3c;">
+                        <strong>Issue: High Error (&gt; 2mm)</strong>
+                        <ul style="margin: 0.5rem 0 0 0;">
+                            <li>Re-measure corner points more carefully</li>
+                            <li>Ensure projector is stable and hasn't moved</li>
+                            <li>Check if projector angle is too extreme</li>
+                        </ul>
+                    </div>
+
+                    <div style="background: #fff3cd; padding: 1rem; border-radius: 4px; margin: 0.5rem 0; border-left: 4px solid #ffc107;">
+                        <strong>Issue: Calibration Valid but Guides Don't Match</strong>
+                        <ul style="margin: 0.5rem 0 0 0;">
+                            <li>Check object orientation angle</li>
+                            <li>Verify center line positions</li>
+                            <li>Ensure layout elements use correct coordinate system</li>
+                        </ul>
+                    </div>
+
+                    <div style="background: #d1ecf1; padding: 1rem; border-radius: 4px; margin: 0.5rem 0; border-left: 4px solid #17a2b8;">
+                        <strong>Issue: Boundary Pattern Doesn't Align</strong>
+                        <ul style="margin: 0.5rem 0 0 0;">
+                            <li>Projector may have moved - recalibrate</li>
+                            <li>Verify calibration points entered correctly</li>
+                            <li>Check press dimensions match actual measurements</li>
+                        </ul>
+                    </div>
+
+                    <h5 style="color: #2c3e50; margin-top: 1.5rem;">Best Practices</h5>
+                    <ul>
+                        <li><strong>Stable Setup</strong>: Ensure projector is mounted securely</li>
+                        <li><strong>Good Lighting</strong>: Adequate lighting helps see projected guides</li>
+                        <li><strong>Accurate Measurements</strong>: Use precise measuring tools</li>
+                        <li><strong>Multiple Points</strong>: Test calibration at multiple positions</li>
+                        <li><strong>Regular Checks</strong>: Use boundary pattern periodically to verify alignment</li>
+                    </ul>
+                </div>
+            `;
+            
+            contentDiv.innerHTML = guideHTML;
+        }
+
+        function toggleInteractiveCalibration() {
+            if (calibrationMode) {
+                stopInteractiveCalibration();
+            } else {
+                startInteractiveCalibration();
+            }
+        }
+
+        function startInteractiveCalibration() {
+            const width = parseFloat(document.getElementById('pressWidth').value);
+            const height = parseFloat(document.getElementById('pressHeight').value);
+            
+            if (!width || !height) {
+                showAlert('Please enter press dimensions first', 'error');
+                return;
+            }
+            
+            calibrationMode = true;
+            document.getElementById('startCalibrationBtn').textContent = '🛑 Stop Calibration';
+            document.getElementById('startCalibrationBtn').style.background = '#e74c3c';
+            document.getElementById('calibrationStatus').textContent = 'Drag the rectangle corners to align with press corners';
+            document.getElementById('calibrationStatus').style.color = '#e67e22';
+            
+            // Calculate initial rectangle (25% of screen, centered)
+            const screenWidth = 1920; // Default projector resolution
+            const screenHeight = 1080;
+            const rectWidth = screenWidth * 0.25;
+            const rectHeight = screenHeight * 0.25;
+            const centerX = screenWidth / 2;
+            const centerY = screenHeight / 2;
+            
+            // Set initial calibration points
+            calibrationPoints[0] = { id: 'tl', x: centerX - rectWidth/2, y: centerY - rectHeight/2, label: 'Top Left' };
+            calibrationPoints[1] = { id: 'tr', x: centerX + rectWidth/2, y: centerY - rectHeight/2, label: 'Top Right' };
+            calibrationPoints[2] = { id: 'br', x: centerX + rectWidth/2, y: centerY + rectHeight/2, label: 'Bottom Right' };
+            calibrationPoints[3] = { id: 'bl', x: centerX - rectWidth/2, y: centerY + rectHeight/2, label: 'Bottom Left' };
+            
+            // Send calibration rectangle to projector
+            if (window.socket) {
+                window.socket.emit('start_calibration', {
+                    points: calibrationPoints,
+                    press_width_mm: width,
+                    press_height_mm: height
+                });
+            }
+        }
+
+        function stopInteractiveCalibration() {
+            calibrationMode = false;
+            document.getElementById('startCalibrationBtn').textContent = '🎯 Start Interactive Calibration';
+            document.getElementById('startCalibrationBtn').style.background = '#3498db';
+            document.getElementById('calibrationStatus').textContent = 'Calibration stopped';
+            document.getElementById('calibrationStatus').style.color = '#666';
+            
+            // Stop calibration on projector
+            if (window.socket) {
+                window.socket.emit('stop_calibration');
+            }
+        }
+
+
+        function updateCalibrationPoint(pointId, x, y) {
+            const point = calibrationPoints.find(p => p.id === pointId);
+            if (point) {
+                point.x = x;
+                point.y = y;
+                
+                // Send updated points to projector
+                if (window.socket && calibrationMode) {
+                    window.socket.emit('update_calibration_points', {
+                        points: calibrationPoints
+                    });
+                }
+            }
+        }
+
+        function saveCalibration() {
+            const width = parseFloat(document.getElementById('pressWidth').value);
+            const height = parseFloat(document.getElementById('pressHeight').value);
+            
+            if (!width || !height) {
+                showAlert('Please enter press dimensions', 'error');
+                return;
+            }
+            
+            if (!calibrationMode || calibrationPoints[0].x === 0) {
+                showAlert('Please start interactive calibration first and drag the rectangle corners to align with press corners', 'error');
+                return;
+            }
+            
+            // Use interactive calibration points
+            const sourcePoints = calibrationPoints.map(p => [p.x, p.y]);
+            const destinationPoints = [
+                [0, 0],
+                [width, 0],
+                [width, height],
+                [0, height]
+            ];
+
+            fetch('/api/calibration', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    source_points: sourcePoints,
+                    destination_points: destinationPoints,
+                    press_width_mm: width,
+                    press_height_mm: height
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('Calibration saved successfully', 'success');
+                    // Stop calibration mode
+                    if (calibrationMode) {
+                        stopInteractiveCalibration();
+                    }
+                    // Automatically validate after saving
+                    setTimeout(() => validateCalibration(), 500);
+                } else {
+                    showAlert('Calibration failed: ' + data.error, 'error');
+                }
+            })
+            .catch(error => {
+                showAlert('Error saving calibration: ' + error, 'error');
+            });
+        }
+
+        function validateCalibration() {
+            fetch('/api/calibration/validate')
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showAlert('No calibration data found', 'info');
+                    return;
+                }
+                
+                // Show the warped calibration rectangle on projector
+                if (window.socket) {
+                    window.socket.emit('show_validation_pattern');
+                }
+                
+                // Display quality metrics
+                const qualityDiv = document.getElementById('calibrationQuality');
+                const alertDiv = document.getElementById('calibrationQualityAlert');
+                const detailsDiv = document.getElementById('calibrationQualityDetails');
+                
+                // Determine quality level
+                let qualityClass = 'alert-error';
+                let qualityText = 'Poor';
+                let recommendation = 'Recalibration recommended';
+                
+                if (data.valid) {
+                    if (data.max_error_mm < 0.5) {
+                        qualityClass = 'alert-success';
+                        qualityText = 'Excellent';
+                        recommendation = 'Calibration is perfect';
+                    } else if (data.max_error_mm < 1.0) {
+                        qualityClass = 'alert-success';
+                        qualityText = 'Good';
+                        recommendation = 'Calibration is acceptable';
+                    } else {
+                        qualityClass = 'alert-info';
+                        qualityText = 'Acceptable';
+                        recommendation = 'Calibration works but could be improved';
+                    }
+                } else {
+                    qualityClass = 'alert-error';
+                    qualityText = 'Invalid';
+                    recommendation = 'Recalibration required';
+                }
+                
+                alertDiv.className = `alert ${qualityClass}`;
+                
+                detailsDiv.innerHTML = `
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 0.5rem;">
+                        <div>
+                            <strong>Status:</strong> ${data.valid ? '✓ Valid' : '✗ Invalid'}<br>
+                            <strong>Quality:</strong> ${qualityText}<br>
+                            <strong>Max Error:</strong> ${data.max_error_mm.toFixed(2)} mm<br>
+                            <strong>Avg Error:</strong> ${data.avg_error_mm.toFixed(2)} mm<br>
+                            <strong>Pixels/mm:</strong> ${data.pixels_per_mm.toFixed(2)}
+                        </div>
+                        <div>
+                            <strong>Recommendation:</strong><br>
+                            ${recommendation}
+                            ${data.max_error_mm >= 1.0 ? '<br><br>Check:<br>• Corner point measurements<br>• Press dimensions<br>• Projector stability' : ''}
+                        </div>
+                    </div>
+                    <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(0,0,0,0.1);">
+                        <small>
+                            <strong>Quality Guidelines:</strong><br>
+                            Excellent: &lt; 0.5mm | Good: &lt; 1.0mm | Acceptable: &lt; 2.0mm | Poor: &gt; 2.0mm
+                        </small>
+                    </div>
+                    <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(0,0,0,0.1);">
+                        <p style="margin-top: 0.5rem;"><strong>Visual Verification:</strong></p>
+                        <p>The calibration rectangle has been displayed on the projector. Check that all four corners align with your press corners.</p>
+                        <button class="btn" onclick="hideValidationPattern()" style="margin-top: 0.5rem;">Hide Validation Pattern</button>
+                    </div>
+                `;
+                
+                qualityDiv.style.display = 'block';
+            })
+            .catch(error => {
+                showAlert('Error validating calibration: ' + error, 'error');
+            });
+        }
+        
+        function hideValidationPattern() {
+            if (window.socket) {
+                window.socket.emit('hide_validation_pattern');
+            }
+        }
+
+        function loadCalibration() {
+            fetch('/api/calibration')
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showAlert('No calibration data found', 'info');
+                    return;
+                }
+                
+                // Populate form with loaded data
+                document.getElementById('pressWidth').value = data.press_width_mm;
+                document.getElementById('pressHeight').value = data.press_height_mm;
+                
+                showAlert('Calibration loaded successfully', 'success');
+                // Automatically validate after loading
+                setTimeout(() => validateCalibration(), 500);
+            })
+            .catch(error => {
+                showAlert('Error loading calibration: ' + error, 'error');
+            });
+        }
+
+        // Layout functions
+        function updateObjectOrientation() {
+            const angle = parseFloat(document.getElementById('objectOrientation').value) || 0;
+            currentLayout.object_orientation = angle;
+            sendLayoutUpdate();
+            renderControlPreview();
+        }
+
+        function resetOrientation() {
+            const input = document.getElementById('objectOrientation');
+            if (!input) return;
+            input.value = '0';
+            updateObjectOrientation();
+        }
+
+        function updateCenterLines() {
+            const h = parseFloat(document.getElementById('centerLineH').value) || null;
+            const v = parseFloat(document.getElementById('centerLineV').value) || null;
+            currentLayout.center_lines = { horizontal: h, vertical: v };
+            sendLayoutUpdate();
+            renderControlPreview();
+        }
+
+        function sendLayoutUpdate() {
+            if (window.socket) {
+                window.socket.emit('layout_update', currentLayout);
+            }
+        }
+
+        // Drawing tools
+        function addLine() {
+            const element = {
+                type: 'line',
+                start: [0, 0],
+                end: [50, 50],
+                label: 'Line ' + (elements.length + 1)
+            };
+            elements.push(element);
+            updateElementList();
+            sendLayoutUpdate();
+            renderControlPreview();
+        }
+
+        function addRectangle() {
+            const pressW = parseFloat(document.getElementById('pressWidth').value) || 300;
+            const pressH = parseFloat(document.getElementById('pressHeight').value) || 200;
+            const w = 50;
+            const h = 30;
+            const cx = pressW / 2 - w / 2;
+            const cy = pressH / 2 - h / 2;
+            const element = {
+                type: 'rectangle',
+                position: [cx, cy],
+                width: w,
+                height: h,
+                rotation: 0,
+                label: 'Rectangle ' + (elements.length + 1)
+            };
+            elements.push(element);
+            updateElementList();
+            sendLayoutUpdate();
+            renderControlPreview();
+        }
+
+        function addCircle() {
+            const pressW = parseFloat(document.getElementById('pressWidth').value) || 300;
+            const pressH = parseFloat(document.getElementById('pressHeight').value) || 200;
+            const r = 20;
+            const cx = pressW / 2;
+            const cy = pressH / 2;
+            const element = {
+                type: 'circle',
+                position: [cx, cy],
+                radius: r,
+                label: 'Circle ' + (elements.length + 1)
+            };
+            elements.push(element);
+            updateElementList();
+            sendLayoutUpdate();
+            renderControlPreview();
+        }
+
+        function addImage() {
+            const element = {
+                type: 'image',
+                position: [0, 0],
+                width: 40,
+                rotation: 0,
+                image_url: '',
+                label: 'Image ' + (elements.length + 1)
+            };
+            elements.push(element);
+            updateElementList();
+            sendLayoutUpdate();
+            renderControlPreview();
+        }
+
+        function updateElementList() {
+            const list = document.getElementById('elementList');
+            list.innerHTML = '';
+            
+            elements.forEach((element, index) => {
+                const item = document.createElement('div');
+                item.className = 'element-item';
+                item.innerHTML = `
+                    <span>${element.label}</span>
+                    <div class="element-controls">
+                        <button onclick="editElement(${index})">Edit</button>
+                        <button onclick="removeElement(${index})">Remove</button>
+                    </div>
+                `;
+                list.appendChild(item);
+            });
+        }
+
+        let eeIndex = -1;
+        function editElement(index) {
+            eeIndex = index;
+            const element = elements[index];
+            const editor = document.getElementById('elementEditor');
+            const label = document.getElementById('eeLabel');
+            const color = document.getElementById('eeColor');
+            const rectFields = document.getElementById('eeRectFields');
+            const lineFields = document.getElementById('eeLineFields');
+            const circleFields = document.getElementById('eeCircleFields');
+            const widthInput = document.getElementById('eeWidth');
+            const heightInput = document.getElementById('eeHeight');
+            const lineXInput = document.getElementById('eeLineX');
+            const lineYInput = document.getElementById('eeLineY');
+            const lineAngleInput = document.getElementById('eeLineAngle');
+            const radiusInput = document.getElementById('eeRadius');
+
+            label.value = element.label || '';
+            color.value = normalizeColorForInput(element.color || '#00ffff');
+            rectFields.style.display = element.type === 'rectangle' ? 'block' : 'none';
+            lineFields.style.display = element.type === 'line' ? 'block' : 'none';
+            circleFields.style.display = element.type === 'circle' ? 'block' : 'none';
+            if (element.type === 'rectangle') {
+                widthInput.value = element.width != null ? element.width : '';
+                heightInput.value = element.height != null ? element.height : '';
+            }
+            if (element.type === 'line') {
+                const [x1,y1] = element.start || [0,0];
+                const [x2,y2] = element.end || [0,0];
+                const mx = (x1 + x2) / 2;
+                const my = (y1 + y2) / 2;
+                const ang = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+                lineXInput.value = mx.toFixed(1);
+                lineYInput.value = my.toFixed(1);
+                lineAngleInput.value = ang.toFixed(1);
+            }
+            if (element.type === 'circle') {
+                radiusInput.value = element.radius != null ? element.radius : '';
+            }
+
+            editor.style.display = 'flex';
+        }
+
+        function closeElementEditor() {
+            const editor = document.getElementById('elementEditor');
+            editor.style.display = 'none';
+            eeIndex = -1;
+        }
+
+        function saveElementEditor() {
+            if (eeIndex < 0) return;
+            const element = elements[eeIndex];
+            const label = document.getElementById('eeLabel').value;
+            const color = document.getElementById('eeColor').value;
+            const widthInput = document.getElementById('eeWidth');
+            const heightInput = document.getElementById('eeHeight');
+            const radiusInput = document.getElementById('eeRadius');
+
+            element.label = label;
+            element.color = color;
+            if (element.type === 'rectangle') {
+                const w = parseFloat(widthInput.value);
+                const h = parseFloat(heightInput.value);
+                if (!Number.isNaN(w) && w >= 0) element.width = w;
+                if (!Number.isNaN(h) && h >= 0) element.height = h;
+            } else if (element.type === 'line') {
+                const lx = parseFloat(document.getElementById('eeLineX').value);
+                const ly = parseFloat(document.getElementById('eeLineY').value);
+                const la = parseFloat(document.getElementById('eeLineAngle').value);
+                if (!Number.isNaN(lx) && !Number.isNaN(ly) && !Number.isNaN(la)) {
+                    const [x1,y1] = element.start || [0,0];
+                    const [x2,y2] = element.end || [0,0];
+                    const len = Math.hypot(x2 - x1, y2 - y1);
+                    const half = len / 2;
+                    const rad = la * Math.PI / 180;
+                    const dx = Math.cos(rad) * half;
+                    const dy = Math.sin(rad) * half;
+                    element.start = [lx - dx, ly - dy];
+                    element.end = [lx + dx, ly + dy];
+                }
+            } else if (element.type === 'circle') {
+                const r = parseFloat(radiusInput.value);
+                if (!Number.isNaN(r) && r >= 0) element.radius = r;
+            }
+
+            updateElementList();
+            sendLayoutUpdate();
+            renderControlPreview();
+            closeElementEditor();
+        }
+
+        function normalizeColorForInput(c) {
+            // Accepts #rgb, #rrggbb or css color names; if invalid, fallback
+            const ctx = document.createElement('canvas').getContext('2d');
+            if (!ctx) return '#00ffff';
+            ctx.fillStyle = '#000';
+            ctx.fillStyle = c;
+            const computed = ctx.fillStyle;
+            // Convert rgb(a) to hex
+            if (computed.startsWith('rgb')) {
+                const m = computed.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+                if (m) {
+                    const r = Number(m[1]).toString(16).padStart(2, '0');
+                    const g = Number(m[2]).toString(16).padStart(2, '0');
+                    const b = Number(m[3]).toString(16).padStart(2, '0');
+                    return `#${r}${g}${b}`;
+                }
+            }
+            if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(computed)) return computed;
+            return '#00ffff';
+        }
+
+        function removeElement(index) {
+            elements.splice(index, 1);
+            updateElementList();
+            sendLayoutUpdate();
+            renderControlPreview();
+        }
+
+        // File management
+        function handleFileUpload() {
+            const input = document.getElementById('fileInput');
+            const files = input.files;
+            
+            for (let file of files) {
+                uploadFile(file);
+            }
+        }
+
+        function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            fetch('/api/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('File uploaded successfully: ' + data.file.filename, 'success');
+                    loadFiles();
+                } else {
+                    showAlert('Upload failed: ' + data.error, 'error');
+                }
+            })
+            .catch(error => {
+                showAlert('Upload error: ' + error, 'error');
+            });
+        }
+
+        function loadFiles() {
+            fetch('/api/files')
+            .then(response => response.json())
+            .then(data => {
+                files = data.files;
+                updateFileList();
+            })
+            .catch(error => {
+                showAlert('Error loading files: ' + error, 'error');
+            });
+        }
+
+        function updateFileList() {
+            const list = document.getElementById('fileList');
+            list.innerHTML = '';
+            
+            files.forEach(file => {
+                const item = document.createElement('div');
+                item.className = 'file-item';
+                item.innerHTML = `
+                    <span>${file.filename} (${(file.size / 1024).toFixed(1)} KB)</span>
+                    <button onclick="useFile('${file.filename}')">Use</button>
+                `;
+                list.appendChild(item);
+            });
+        }
+
+        function useFile(filename) {
+            showAlert('File selected: ' + filename, 'info');
+            // TODO: Implement file usage in layout
+        }
+
+        // Configuration management
+        function saveConfiguration() {
+            const name = document.getElementById('configName').value;
+            if (!name) {
+                showAlert('Please enter a configuration name', 'error');
+                return;
+            }
+
+            const configData = {
+                layout: currentLayout,
+                elements: elements
+            };
+
+            fetch('/api/configurations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: name,
+                    data: configData
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('Configuration saved successfully', 'success');
+                    document.getElementById('configName').value = '';
+                    loadConfigurations();
+                } else {
+                    showAlert('Save failed: ' + data.error, 'error');
+                }
+            })
+            .catch(error => {
+                showAlert('Save error: ' + error, 'error');
+            });
+        }
+
+        function loadConfigurations() {
+            fetch('/api/configurations')
+            .then(response => response.json())
+            .then(data => {
+                configurations = data.configurations;
+                updateConfigurationList();
+            })
+            .catch(error => {
+                showAlert('Error loading configurations: ' + error, 'error');
+            });
+        }
+
+        function updateConfigurationList() {
+            const list = document.getElementById('configurationList');
+            list.innerHTML = '';
+            
+            configurations.forEach(config => {
+                const item = document.createElement('div');
+                item.className = 'element-item';
+                item.innerHTML = `
+                    <span>${config}</span>
+                    <div class="element-controls">
+                        <button onclick="loadConfiguration('${config}')">Load</button>
+                    </div>
+                `;
+                list.appendChild(item);
+            });
+        }
+
+        function loadConfiguration(name) {
+            fetch('/api/configurations/' + name)
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showAlert('Configuration not found', 'error');
+                    return;
+                }
+                
+                currentLayout = data.layout;
+                elements = data.elements || [];
+                
+                updateLayoutForm();
+                updateElementList();
+                sendLayoutUpdate();
+                
+                showAlert('Configuration loaded successfully', 'success');
+            })
+            .catch(error => {
+                showAlert('Load error: ' + error, 'error');
+            });
+        }
+
+        function updateLayoutForm() {
+            document.getElementById('objectOrientation').value = currentLayout.object_orientation || 0;
+            document.getElementById('centerLineH').value = currentLayout.center_lines?.horizontal || '';
+            document.getElementById('centerLineV').value = currentLayout.center_lines?.vertical || '';
+            renderControlPreview();
+        }
+
+        // Setup & Maintenance
+        function toggleBoundaryPattern() {
+            if (window.socket) {
+                window.socket.emit('toggle_boundary_pattern');
+            }
+        }
+
+        // Utility functions
+        function showAlert(message, type) {
+            const alerts = document.getElementById('alerts');
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.textContent = message;
+            alerts.appendChild(alert);
+            
+            setTimeout(() => {
+                alert.remove();
+            }, 5000);
+        }
+
+        // ===== Control Preview (SVG.js) =====
+        let previewDraw = null;
+        let renderTimer = null;
+        let projectorTarget = { width: 1920, height: 1080 };
+        let pressSizeTimer = null;
+
+        function setPressInputs(widthMm, heightMm) {
+            console.log('Setting press inputs:', widthMm, heightMm);
+            const pw = document.getElementById('pressWidth');
+            const ph = document.getElementById('pressHeight');
+            if (pw && widthMm != null && !Number.isNaN(widthMm)) {
+                try { pw.valueAsNumber = Number(widthMm); } catch (e) {}
+                pw.value = String(widthMm);
+            }
+            if (ph && heightMm != null && !Number.isNaN(heightMm)) {
+                try { ph.valueAsNumber = Number(heightMm); } catch (e) {}
+                ph.value = String(heightMm);
+            }
+        }
+
+        function initControlPreview() {
+            const container = document.getElementById('layoutPreview');
+            container.innerHTML = '';
+            previewDraw = SVG().addTo(container).size('100%', '100%');
+            renderControlPreview();
+
+            // Listen for projector resolution updates
+            if (window.socket) {
+                window.socket.on('projector_resolution', (data) => {
+                    projectorTarget = { width: data.width, height: data.height };
+                    document.getElementById('previewSize').textContent = `${projectorTarget.width}×${projectorTarget.height}`;
+                });
+            }
+
+            // Load current press size from backend (if calibrated)
+            fetch('/api/press-size')
+                .then(r => r.ok ? r.json() : null)
+                .then(data => {
+                    if (data && data.press_width_mm && data.press_height_mm) {
+                        setPressInputs(data.press_width_mm, data.press_height_mm);
+                        renderControlPreview();
+                    }
+                }).catch(() => {});
+
+            // Wire inputs to save (debounced)
+            const pw = document.getElementById('pressWidth');
+            const ph = document.getElementById('pressHeight');
+            const onPressSizeChange = () => {
+                if (pressSizeTimer) clearTimeout(pressSizeTimer);
+                pressSizeTimer = setTimeout(savePressSize, 500);
+                renderControlPreview();
+            };
+            pw.addEventListener('input', onPressSizeChange);
+            ph.addEventListener('input', onPressSizeChange);
+        }
+
+        function renderControlPreview() {
+            if (!previewDraw) return;
+            const pressW = parseFloat(document.getElementById('pressWidth').value) || 300;
+            const pressH = parseFloat(document.getElementById('pressHeight').value) || 200;
+
+            previewDraw.clear();
+
+            // Root group with viewBox in mm coordinates
+            const root = previewDraw.nested().viewbox(0, 0, pressW, pressH).attr({ preserveAspectRatio: 'xMidYMid meet' });
+
+            // Optional: draw press boundary
+            root.rect(pressW, pressH).fill('none').stroke({ color: '#444', width: 0.5 });
+
+            // Apply base rotation around press center if any
+            const angle = currentLayout.object_orientation || 0;
+            const rotGroup = root.group();
+            if (angle) {
+                rotGroup.rotate(angle, pressW / 2, pressH / 2);
+            }
+
+            // Center lines (extend beyond press bounds so they remain visible when rotated)
+            const over = Math.max(pressW, pressH) * 2;
+            if (currentLayout.center_lines?.horizontal != null) {
+                const y = currentLayout.center_lines.horizontal;
+                rotGroup.line(-over, y, pressW + over, y).stroke({ color: '#ff0000', width: 0.6, dasharray: '8,4' });
+            }
+            if (currentLayout.center_lines?.vertical != null) {
+                const x = currentLayout.center_lines.vertical;
+                rotGroup.line(x, -over, x, pressH + over).stroke({ color: '#ff0000', width: 0.6, dasharray: '8,4' });
+            }
+
+            // Elements
+            (elements || []).forEach((el, idx) => {
+                const g = rotGroup.group();
+                g.addClass('el-' + idx);
+                if (el.type === 'line') {
+                    const [x1, y1] = el.start || [0, 0];
+                    const [x2, y2] = el.end || [0, 0];
+                    // Compute extended drawing endpoints so lines remain visible when rotated
+                    const mx = (x1 + x2) / 2;
+                    const my = (y1 + y2) / 2;
+                    const vx = x2 - x1;
+                    const vy = y2 - y1;
+                    const vlen = Math.hypot(vx, vy) || 1;
+                    const ux = vx / vlen;
+                    const uy = vy / vlen;
+                    const over = Math.max(pressW, pressH) * 2;
+                    const drawHalf = vlen / 2 + over;
+                    const dx = ux * drawHalf;
+                    const dy = uy * drawHalf;
+                    const dx1 = mx - dx;
+                    const dy1 = my - dy;
+                    const dx2 = mx + dx;
+                    const dy2 = my + dy;
+                    const lg = g.group();
+                    // Visible extended line
+                    lg.line(dx1, dy1, dx2, dy2).stroke({ color: el.color || '#0ff', width: 0.6, dasharray: '5,5' });
+                    // Transparent, thicker hit line for easier dragging
+                    lg.line(dx1, dy1, dx2, dy2)
+                        .stroke({ color: '#000', width: 6, opacity: 0.001 })
+                        .attr('pointer-events', 'stroke')
+                        .css('cursor', 'grab');
+                    if (el.label) lg.text(el.label).font({ size: 3 }).fill('#fff').move((x1 + x2) / 2, (y1 + y2) / 2 - 2).attr('text-anchor', 'middle');
+                    if (typeof lg.draggable === 'function') {
+                        lg.draggable();
+                        lg.on('dragend', () => {
+                            // Compute new endpoints by applying the group's matrix to original points
+                            const m = lg.matrixify ? lg.matrixify() : { a:1, b:0, c:0, d:1, e:0, f:0 };
+                            const nx1 = m.a * x1 + m.c * y1 + m.e;
+                            const ny1 = m.b * x1 + m.d * y1 + m.f;
+                            const nx2 = m.a * x2 + m.c * y2 + m.e;
+                            const ny2 = m.b * x2 + m.d * y2 + m.f;
+                            el.start = [nx1, ny1];
+                            el.end = [nx2, ny2];
+                            renderControlPreview();
+                        });
+                    }
+                } else if (el.type === 'rectangle') {
+                    const [x, y] = el.position || [0, 0];
+                    const w = el.width || 10;
+                    const h = el.height || 10;
+                    const r = el.rotation || 0;
+                    const rr = g.group();
+                    if (r) rr.rotate(r, x + w / 2, y + h / 2);
+                    const rect = rr.rect(w, h).move(x, y).fill('none').stroke({ color: el.color || '#0ff', width: 0.6 });
+                    if (el.label) rr.text(el.label).font({ size: 3 }).fill('#fff').move(x + w / 2, y + h / 2).attr('text-anchor', 'middle');
+                    // Enable plugin-based dragging and update model on drag end
+                    if (typeof rr.draggable === 'function') {
+                        rr.draggable();
+                        rr.on('dragend', () => {
+                            const bb = rr.bbox();
+                            el.position = [bb.x, bb.y];
+                            renderControlPreview();
+                        });
+                    }
+                } else if (el.type === 'circle') {
+                    const [x, y] = el.position || [0, 0];
+                    const r = el.radius || 5;
+                    const cg = g.group();
+                    const cc = cg.circle(r * 2).move(x - r, y - r).fill('none').stroke({ color: el.color || '#0ff', width: 0.6 });
+                    if (el.label) cg.text(el.label).font({ size: 3 }).fill('#fff').move(x, y + 2).attr('text-anchor', 'middle');
+                    if (typeof cg.draggable === 'function') {
+                        cg.draggable();
+                        cg.on('dragend', () => {
+                            // Use visible circle bbox to derive center
+                            const bb = cc.bbox();
+                            const cx = bb.cx; const cy = bb.cy;
+                            el.position = [cx, cy];
+                            renderControlPreview();
+                        });
+                    }
+                } else if (el.type === 'image') {
+                    const [x, y] = el.position || [0, 0];
+                    const w = el.width || 20;
+                    const r = el.rotation || 0;
+                    const ig = g.group();
+                    const img = ig.image(el.image_url || '').size(w, w).move(x, y);
+                    if (r) img.rotate(r, x + w / 2, y + w / 2);
+                    if (el.label) ig.text(el.label).font({ size: 3 }).fill('#fff').move(x + w / 2, y + w / 2).attr('text-anchor', 'middle');
+                    if (typeof ig.draggable === 'function') {
+                        ig.draggable();
+                        ig.on('dragend', () => {
+                            const bb = ig.bbox();
+                            el.position = [bb.x, bb.y];
+                            renderControlPreview();
+                        });
+                    }
+                }
+            });
+
+            // Debounced send to backend for rasterize+warp
+            scheduleRenderSend(root.node);
+        }
+
+        function makeDraggable(node, onDrop, moveTarget) {
+            let start = null;
+            const target = moveTarget || node;
+
+            function getClientXY(e) {
+                if (e.touches && e.touches.length) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                return { x: e.clientX, y: e.clientY };
+            }
+
+            function onDown(e) {
+                e.preventDefault();
+                const pt = getClientXY(e);
+                start = { x: pt.x, y: pt.y };
+                try { e.target.setPointerCapture && e.target.setPointerCapture(e.pointerId); } catch (err) {}
+                try { node.attr('pointer-events', 'all'); } catch (err) {}
+                node.css('cursor', 'grabbing');
+            }
+
+            function onUp(e) {
+                e.preventDefault();
+                node.css('cursor', 'default');
+                start = null;
+                renderControlPreview();
+            }
+
+            function onMove(e) {
+                if (!start) return;
+                e.preventDefault();
+                const pt = getClientXY(e);
+                const bbox = node.root().node.getBoundingClientRect();
+                const vb = node.root().viewbox();
+                const sx = vb.width / bbox.width;
+                const sy = vb.height / bbox.height;
+                const dx = (pt.x - start.x) * sx;
+                const dy = (pt.y - start.y) * sy;
+                try { if (typeof target.dmove === 'function') target.dmove(dx, dy); } catch (err) {}
+                onDrop(dx, dy);
+                start = { x: pt.x, y: pt.y };
+            }
+
+            // Pointer + mouse + touch for robustness
+            node.on('pointerdown', onDown);
+            node.on('pointermove', onMove);
+            node.on('pointerup', onUp);
+            node.on('mousedown', onDown);
+            node.on('mousemove', onMove);
+            node.on('mouseup', onUp);
+            node.on('touchstart', onDown);
+            node.on('touchmove', onMove);
+            node.on('touchend', onUp);
+        }
+
+        function scheduleRenderSend(rootSvgNode) {
+            if (!window.socket) return;
+            if (renderTimer) cancelAnimationFrame(renderTimer);
+            renderTimer = requestAnimationFrame(() => {
+                const svgString = rootSvgNode.outerHTML;
+                window.socket.emit('render_svg', {
+                    svg: svgString,
+                    target_width: projectorTarget.width,
+                    target_height: projectorTarget.height
+                });
+            });
+        }
+
+        function savePressSize() {
+            const w = parseFloat(document.getElementById('pressWidth').value);
+            const h = parseFloat(document.getElementById('pressHeight').value);
+            if (!w || !h) return;
+            fetch('/api/press-size', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ press_width_mm: w, press_height_mm: h })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data && data.success) {
+                    showAlert(`Press size saved: ${w}×${h}mm`, 'success');
+                } else if (data && data.error) {
+                    showAlert('Failed to save press size: ' + data.error, 'error');
+                }
+            })
+            .catch(err => showAlert('Error saving press size: ' + err, 'error'));
+        }
+
+        // Initialize preview after DOM is ready (with SVG.js availability check)
+        document.addEventListener('DOMContentLoaded', function() {
+            const container = document.getElementById('layoutPreview');
+            if (!container) return;
+            if (typeof SVG === 'undefined') {
+                container.innerHTML = '<div style="color:#ddd;padding:12px;">Preview not available (SVG.js not loaded). Check network or bundle SVG.js locally.</div>';
+                return;
+            }
+            initControlPreview();
+        });
+    </script>
+</body>
+</html>

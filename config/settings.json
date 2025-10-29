@@ -1,0 +1,14 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 5000,
+    "debug": false
+  },
+  "projector": {
+    "default_width": 1920,
+    "default_height": 1080
+  },
+  "calibration": {
+    "max_error_mm": 1.0
+  }
+}

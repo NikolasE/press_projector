@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Press Projector View</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+    <link rel="manifest" href="/static/site.webmanifest">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #000;
+            color: #fff;
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        .projector-container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .status-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 0.5rem 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 0.5rem;
+        }
+
+        .status-connected {
+            background: #27ae60;
+        }
+
+        .status-disconnected {
+            background: #e74c3c;
+        }
+
+        .svg-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .svg-container svg {
+            max-width: 100%;
+            max-height: 100%;
+            width: auto;
+            height: auto;
+        }
+
+        .error-message {
+            text-align: center;
+            padding: 2rem;
+            background: rgba(231, 76, 60, 0.9);
+            border-radius: 8px;
+            margin: 2rem;
+        }
+
+        .error-message h2 {
+            margin-bottom: 1rem;
+            color: #fff;
+        }
+
+        .error-message p {
+            color: #fff;
+            font-size: 1.2rem;
+        }
+
+        .loading-message {
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .loading-message h2 {
+            margin-bottom: 1rem;
+            color: #3498db;
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #333;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .info-overlay {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 1rem;
+            text-align: center;
+            z-index: 1000;
+        }
+
+        .info-overlay.hidden {
+            display: none;
+        }
+
+        .process-info {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .process-info span {
+            background: rgba(52, 152, 219, 0.8);
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+
+        .calibration-info {
+            font-size: 0.9rem;
+            color: #bdc3c7;
+        }
+
+        /* Hide scrollbars */
+        ::-webkit-scrollbar {
+            display: none;
+        }
+
+        body {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="status-bar">
+        <div>
+            <span class="status-indicator" id="connectionStatus"></span>
+            <span id="connectionText">Connecting...</span>
+        </div>
+        <div id="calibrationInfo" class="calibration-info">
+            Calibration: Not available
+        </div>
+    </div>
+
+    <div class="projector-container">
+        <div id="loadingMessage" class="loading-message">
+            <h2>Press Projector System</h2>
+            <div class="loading-spinner"></div>
+            <p>Connecting to control system...</p>
+        </div>
+
+        <div id="errorMessage" class="error-message" style="display: none;">
+            <h2>System Error</h2>
+            <p id="errorText">An error occurred while loading the projection system.</p>
+        </div>
+
+        <div id="svgContainer" class="svg-container" style="display: none;">
+            <!-- SVG content will be inserted here -->
+        </div>
+        <div id="frameContainer" class="svg-container" style="display:none;">
+            <img id="projectorFrame" alt="projector frame" style="max-width:100%; max-height:100%; width:auto; height:auto;" />
+        </div>
+    </div>
+
+    <div id="infoOverlay" class="info-overlay hidden">
+        <div class="process-info">
+            <span id="temperatureInfo">Temperature: --°C</span>
+            <span id="durationInfo">Duration: --s</span>
+        </div>
+        <div class="calibration-info">
+            Press area: <span id="pressAreaInfo">Not calibrated</span>
+        </div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="/static/common.js"></script>
+    <script>
+        // Global state
+        let isConnected = false;
+        let currentCalibration = null;
+        let currentLayout = null;
+        let currentSVG = '';
+        let calibrationMode = false;
+        let calibrationPoints = [];
+        let draggedCorner = null;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            // Check if socket.io is loaded
+            if (typeof io === 'undefined') {
+                showErrorMessage('Socket.IO library not loaded. Please check your internet connection or server configuration.');
+                return;
+            }
+            initializeWebSocket();
+        });
+
+        // WebSocket connection
+        function initializeWebSocket() {
+            // Get the base URL from current location
+            const baseUrl = window.location.origin;
+            const socket = io(baseUrl, {
+                transports: ['websocket', 'polling'],
+                reconnection: true,
+                reconnectionDelay: 1000,
+                reconnectionAttempts: 10
+            });
+            
+            socket.on('connect', function() {
+                updateConnectionStatus(true);
+                socket.emit('join_room', { room: 'projector' });
+                hideLoadingMessage();
+                // Report projector resolution
+                try {
+                    const width = window.innerWidth || screen.width || 1920;
+                    const height = window.innerHeight || screen.height || 1080;
+                    socket.emit('projector_resolution', { width, height });
+                } catch (e) { console.log('Resolution report failed', e); }
+            });
+
+            socket.on('disconnect', function() {
+                updateConnectionStatus(false);
+                showErrorMessage('Connection lost. Attempting to reconnect...');
+            });
+
+            socket.on('connect_error', function(error) {
+                console.error('Connection error:', error);
+                updateConnectionStatus(false);
+                showErrorMessage('Failed to connect to server. Check if server is running.');
+            });
+
+            socket.on('calibration_updated', function(data) {
+                console.log('Calibration updated:', data);
+                currentCalibration = data;
+                updateCalibrationInfo(data);
+                hideErrorMessage();
+            });
+
+            socket.on('layout_updated', function(data) {
+                console.log('Layout updated:', data);
+                currentLayout = data.layout;
+                currentSVG = data.svg;
+                updateProjection();
+                hideErrorMessage();
+            });
+
+            socket.on('boundary_pattern_toggled', function(data) {
+                console.log('Boundary pattern toggled:', data);
+                currentSVG = data.svg;
+                updateProjection();
+            });
+
+            // Receive rendered frames
+            socket.on('projector_frame', function(data) {
+                const imgEl = document.getElementById('projectorFrame');
+                imgEl.src = 'data:image/png;base64,' + data.image;
+                document.getElementById('frameContainer').style.display = 'flex';
+                document.getElementById('svgContainer').style.display = 'none';
+                hideLoadingMessage();
+                hideErrorMessage();
+            });
+
+            socket.on('start_calibration', function(data) {
+                console.log('Starting calibration:', data);
+                console.log('Received points:', data.points);
+                calibrationMode = true;
+                calibrationPoints = data.points || [];
+                console.log('Calibration mode set, points count:', calibrationPoints.length);
+                updateCalibrationProjection();
+            });
+
+            socket.on('update_calibration_points', function(data) {
+                console.log('Updating calibration points:', data);
+                calibrationPoints = data.points;
+                updateCalibrationProjection();
+            });
+
+            socket.on('stop_calibration', function() {
+                console.log('Stopping calibration');
+                calibrationMode = false;
+                calibrationPoints = [];
+                updateProjection();
+            });
+
+            // Store socket globally
+            window.socket = socket;
+        }
+
+        function updateConnectionStatus(connected) {
+            isConnected = connected;
+            const status = document.getElementById('connectionStatus');
+            const text = document.getElementById('connectionText');
+            
+            if (connected) {
+                status.className = 'status-indicator status-connected';
+                text.textContent = 'Connected';
+            } else {
+                status.className = 'status-indicator status-disconnected';
+                text.textContent = 'Disconnected';
+            }
+        }
+
+        function updateCalibrationInfo(calibration) {
+            const info = document.getElementById('calibrationInfo');
+            if (calibration && calibration.press_width_mm && calibration.press_height_mm) {
+                info.textContent = `Press: ${calibration.press_width_mm}×${calibration.press_height_mm}mm`;
+                
+                const pressArea = document.getElementById('pressAreaInfo');
+                pressArea.textContent = `${calibration.press_width_mm}×${calibration.press_height_mm}mm`;
+            } else {
+                info.textContent = 'Calibration: Not available';
+            }
+        }
+
+        function updateProjection() {
+            const container = document.getElementById('svgContainer');
+            
+            if (calibrationMode) {
+                updateCalibrationProjection();
+            } else if (currentSVG) {
+                container.innerHTML = currentSVG;
+                container.style.display = 'flex';
+                hideLoadingMessage();
+                hideErrorMessage();
+            } else {
+                showErrorMessage('No projection data available');
+            }
+        }
+
+        function updateCalibrationProjection() {
+            const container = document.getElementById('svgContainer');
+            
+            if (!calibrationPoints || calibrationPoints.length !== 4) {
+                console.log('No calibration points available:', calibrationPoints);
+                showErrorMessage('Invalid calibration points. Expected 4 points.');
+                return;
+            }
+            
+            console.log('Creating calibration projection with points:', calibrationPoints);
+            
+            // Create draggable calibration rectangle
+            const svg = createCalibrationSVG();
+            
+            if (!svg) {
+                console.error('Failed to create calibration SVG');
+                showErrorMessage('Failed to create calibration rectangle.');
+                return;
+            }
+            
+            container.innerHTML = svg;
+            container.style.display = 'flex';
+            hideLoadingMessage();
+            hideErrorMessage();
+            
+            // Force container to be visible
+            setTimeout(() => {
+                addCalibrationDragListeners();
+            }, 100);
+        }
+
+        function createCalibrationSVG() {
+            const points = calibrationPoints;
+            // Use actual window dimensions or default to 1920x1080
+            const width = window.innerWidth || 1920;
+            const height = window.innerHeight || 1080;
+            
+            console.log('Creating SVG with points:', points);
+            console.log('Window dimensions:', width, height);
+            
+            // Validate points
+            if (!points || points.length !== 4) {
+                console.error('Invalid calibration points:', points);
+                return '';
+            }
+            
+            // Create rectangle from points - ensure points are in correct format
+            const pointsStr = points.map(p => {
+                const x = typeof p.x === 'number' ? p.x : parseFloat(p.x) || 0;
+                const y = typeof p.y === 'number' ? p.y : parseFloat(p.y) || 0;
+                return `${x},${y}`;
+            }).join(' ');
+            
+            console.log('Points string:', pointsStr);
+            
+            // Create corner handles
+            const handles = points.map((point, index) => {
+                const colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00'];
+                const x = typeof point.x === 'number' ? point.x : parseFloat(point.x) || 0;
+                const y = typeof point.y === 'number' ? point.y : parseFloat(point.y) || 0;
+                return `
+                    <circle cx="${x}" cy="${y}" r="20" 
+                            fill="${colors[index]}" stroke="white" stroke-width="3"
+                            class="calibration-handle" data-index="${index}"
+                            style="cursor: grab;"/>
+                `;
+            }).join('');
+            
+            const svgContent = `
+                <svg width="100%" height="100%" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" 
+                     preserveAspectRatio="none" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
+                    <defs>
+                        <style>
+                            .calibration-handle:hover { r: 25; }
+                            .calibration-handle:active { cursor: grabbing; }
+                            .calibration-rect { stroke: #ffff00; stroke-width: 4; fill: rgba(255,255,0,0.2); }
+                            .calibration-text { fill: #ffff00; font-family: Arial, sans-serif; font-size: 28px; text-anchor: middle; font-weight: bold; }
+                        </style>
+                    </defs>
+                    <polygon points="${pointsStr}" class="calibration-rect"/>
+                    ${handles}
+                    <text x="${width/2}" y="50" class="calibration-text">
+                        Drag the corners to align with press corners
+                    </text>
+                    <text x="${width/2}" y="90" class="calibration-text" style="font-size: 20px;">
+                        Press corners: Red=Top Left, Green=Top Right, Blue=Bottom Right, Yellow=Bottom Left
+                    </text>
+                </svg>
+            `;
+            
+            console.log('Generated SVG content length:', svgContent.length);
+            return svgContent;
+        }
+
+        function addCalibrationDragListeners() {
+            const handles = document.querySelectorAll('.calibration-handle');
+            
+            handles.forEach(handle => {
+                handle.addEventListener('mousedown', startDrag);
+                handle.addEventListener('touchstart', startDrag);
+            });
+            
+            document.addEventListener('mousemove', drag);
+            document.addEventListener('touchmove', drag);
+            document.addEventListener('mouseup', endDrag);
+            document.addEventListener('touchend', endDrag);
+        }
+
+        function startDrag(event) {
+            event.preventDefault();
+            draggedCorner = parseInt(event.target.getAttribute('data-index'));
+            document.body.style.cursor = 'grabbing';
+        }
+
+        function drag(event) {
+            if (draggedCorner === null) return;
+            
+            event.preventDefault();
+            
+            const svg = document.querySelector('svg');
+            if (!svg) return;
+            
+            const rect = svg.getBoundingClientRect();
+            const viewBox = svg.getAttribute('viewBox');
+            let svgWidth = window.innerWidth || 1920;
+            let svgHeight = window.innerHeight || 1080;
+            
+            if (viewBox) {
+                const vb = viewBox.split(' ');
+                svgWidth = parseFloat(vb[2]) || svgWidth;
+                svgHeight = parseFloat(vb[3]) || svgHeight;
+            }
+            
+            const scaleX = svgWidth / rect.width;
+            const scaleY = svgHeight / rect.height;
+            
+            let clientX, clientY;
+            if (event.touches) {
+                clientX = event.touches[0].clientX;
+                clientY = event.touches[0].clientY;
+            } else {
+                clientX = event.clientX;
+                clientY = event.clientY;
+            }
+            
+            const x = (clientX - rect.left) * scaleX;
+            const y = (clientY - rect.top) * scaleY;
+            
+            // Update calibration point
+            calibrationPoints[draggedCorner].x = Math.max(0, Math.min(svgWidth, x));
+            calibrationPoints[draggedCorner].y = Math.max(0, Math.min(svgHeight, y));
+            
+            // Update projection
+            updateCalibrationProjection();
+            
+            // Send update to control interface
+            if (window.socket) {
+                window.socket.emit('calibration_point_dragged', {
+                    index: draggedCorner,
+                    x: calibrationPoints[draggedCorner].x,
+                    y: calibrationPoints[draggedCorner].y
+                });
+            }
+        }
+
+        function endDrag() {
+            if (draggedCorner !== null) {
+                draggedCorner = null;
+                document.body.style.cursor = 'default';
+            }
+        }
+
+        function hideLoadingMessage() {
+            const loading = document.getElementById('loadingMessage');
+            loading.style.display = 'none';
+        }
+
+        function showErrorMessage(message) {
+            const error = document.getElementById('errorMessage');
+            const text = document.getElementById('errorText');
+            text.textContent = message;
+            error.style.display = 'block';
+            
+            const container = document.getElementById('svgContainer');
+            container.style.display = 'none';
+        }
+
+        function hideErrorMessage() {
+            const error = document.getElementById('errorMessage');
+            error.style.display = 'none';
+        }
+
+        function showInfoOverlay() {
+            const overlay = document.getElementById('infoOverlay');
+            overlay.classList.remove('hidden');
+        }
+
+        function hideInfoOverlay() {
+            const overlay = document.getElementById('infoOverlay');
+            overlay.classList.add('hidden');
+        }
+
+        // Update process information
+        function updateProcessInfo(temperature, duration) {
+            const tempInfo = document.getElementById('temperatureInfo');
+            const durInfo = document.getElementById('durationInfo');
+            
+            if (temperature !== undefined) {
+                tempInfo.textContent = `Temperature: ${temperature}°C`;
+            }
+            
+            if (duration !== undefined) {
+                durInfo.textContent = `Duration: ${duration}s`;
+            }
+            
+            // Show overlay if we have process info
+            if (temperature !== undefined || duration !== undefined) {
+                showInfoOverlay();
+            }
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', function() {
+            // SVG will automatically scale due to CSS
+            console.log('Window resized');
+        });
+
+        // Handle fullscreen
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    console.log('Error attempting to enable fullscreen:', err);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function(event) {
+            switch(event.key) {
+                case 'F11':
+                    event.preventDefault();
+                    toggleFullscreen();
+                    break;
+                case 'Escape':
+                    if (document.fullscreenElement) {
+                        document.exitFullscreen();
+                    }
+                    break;
+            }
+        });
+
+        // Auto-hide cursor after inactivity
+        let cursorTimeout;
+        function resetCursorTimeout() {
+            document.body.style.cursor = 'default';
+            clearTimeout(cursorTimeout);
+            cursorTimeout = setTimeout(() => {
+                document.body.style.cursor = 'none';
+            }, 3000);
+        }
+
+        document.addEventListener('mousemove', resetCursorTimeout);
+        document.addEventListener('click', resetCursorTimeout);
+        resetCursorTimeout();
+
+        // Initial state
+        console.log('Press Projector View initialized');
+    </script>
+</body>
+</html>

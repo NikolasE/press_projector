@@ -1,0 +1,22 @@
+{
+  "object_orientation": 15.0,
+  "center_lines": {
+    "horizontal": 100,
+    "vertical": 150
+  },
+  "elements": [
+    {
+      "type": "line",
+      "start": [
+        0,
+        0
+      ],
+      "end": [
+        100,
+        100
+      ]
+    }
+  ],
+  "config_name": "test_config",
+  "timestamp": "2025-10-29T16:14:55.594983"
+}
