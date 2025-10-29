@@ -617,6 +617,14 @@ def handle_render_svg(data):
         else:
             warped = cv2.resize(img, (out_w, out_h), interpolation=cv2.INTER_LINEAR)
 
+        # Write debug image to disk (only keep the latest)
+        try:
+            debug_dir = os.path.join('config', 'renders')
+            os.makedirs(debug_dir, exist_ok=True)
+            cv2.imwrite(os.path.join(debug_dir, 'latest.png'), warped)
+        except Exception as e:
+            print(f"Failed to save debug render images: {e}")
+
         ok, enc = cv2.imencode('.png', warped)
         if not ok:
             print('PNG encode failed')

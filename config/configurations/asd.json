@@ -1,0 +1,27 @@
+{
+  "layout": {
+    "object_orientation": 0,
+    "center_lines": {
+      "horizontal": 39,
+      "vertical": 19
+    },
+    "elements": []
+  },
+  "elements": [
+    {
+      "type": "line",
+      "start": [
+        -8.223151219433738,
+        12.907761867601238
+      ],
+      "end": [
+        58.22315121943374,
+        37.09223813239876
+      ],
+      "label": "Line 1",
+      "color": "#00ffff"
+    }
+  ],
+  "config_name": "asd",
+  "timestamp": "2025-10-29T21:23:49.437599"
+}

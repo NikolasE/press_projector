@@ -196,6 +196,8 @@ class ProjectorManager:
                 return self._generate_circle_svg(element)
             elif element_type == "image":
                 return self._generate_image_svg(element)
+            elif element_type == "text":
+                return self._generate_text_svg(element)
             else:
                 print(f"Unknown element type: {element_type}")
                 return ""
@@ -281,6 +283,24 @@ class ProjectorManager:
             '''
         else:
             return f'<image x="{x_px}" y="{y_px}" width="{width_px}" height="{height_px}" href="{image_url}"/>'
+
+    def _generate_text_svg(self, element: Dict[str, Any]) -> str:
+        """Generate text SVG."""
+        x_mm, y_mm = element.get("position", [0, 0])
+        rotation = element.get("rotation", 0)
+        font_size_mm = element.get("font_size", 10)
+        text_content = element.get("text", "")
+        color = element.get("color", "#00ffff")
+
+        x_px, y_px = self.calibrator.press_to_projector(x_mm, y_mm)
+        font_size_px = self.calibrator.mm_to_pixels(font_size_mm)
+
+        if rotation != 0:
+            return f'''<g transform="rotate({rotation} {x_px} {y_px})">
+                <text x="{x_px}" y="{y_px}" fill="{color}" font-size="{font_size_px}" font-family="Arial, sans-serif">{text_content}</text>
+            </g>'''
+        else:
+            return f'<text x="{x_px}" y="{y_px}" fill="{color}" font-size="{font_size_px}" font-family="Arial, sans-serif">{text_content}</text>'
     
     def get_layout_data(self) -> Dict[str, Any]:
         """Get current layout data."""

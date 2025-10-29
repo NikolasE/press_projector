@@ -1,0 +1,96 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Press Projector Server",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/start_server.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--debug"
+            ],
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
+            "name": "Python: Press Projector Server (Custom Port)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/start_server.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "5000",
+                "--debug"
+            ],
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
+            "name": "Python: Test System",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/test_system.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
+            "name": "Python: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
+            "name": "Python: Server Module",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "flask",
+            "args": [
+                "run",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "5000",
+                "--debug"
+            ],
+            "jinja": true,
+            "flask": true,
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "FLASK_APP": "${workspaceFolder}/backend/server.py",
+                "FLASK_ENV": "development",
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Press Projector: Full System",
+            "configurations": [
+                "Python: Press Projector Server"
+            ],
+            "presentation": {
+                "hidden": false,
+                "group": "1_press_projector",
+                "order": 1
+            },
+            "stopAll": true
+        }
+    ]
+}

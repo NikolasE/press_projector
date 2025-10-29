@@ -332,7 +332,6 @@
                 <button class="tab-button active" onclick="switchTab('calibration')">Calibration</button>
                 <button class="tab-button" onclick="switchTab('layout')">Layout</button>
                 <button class="tab-button" onclick="switchTab('files')">Files</button>
-                <button class="tab-button" onclick="switchTab('configurations')">Configurations</button>
             </div>
 
             <!-- Calibration Tab -->
@@ -408,11 +407,22 @@
                     <button class="btn" onclick="addRectangle()">Add Rectangle</button>
                     <button class="btn" onclick="addCircle()">Add Circle</button>
                     <button class="btn" onclick="addImage()">Add Image</button>
+                    <button class="btn" onclick="addText()">Add Text</button>
                 </div>
 
                 <h4>Elements</h4>
                 <div class="element-list" id="elementList">
                     <!-- Elements will be added here dynamically -->
+                </div>
+
+                <h4 style="margin-top: 1rem;">Saved Scenes</h4>
+                <div class="form-group">
+                    <input type="text" id="configName" placeholder="Scene name">
+                    <button class="btn btn-success" onclick="saveConfiguration()">Save Current</button>
+                </div>
+
+                <div class="element-list" id="configurationList">
+                    <!-- Configurations will be listed here -->
                 </div>
             </div>
 
@@ -430,19 +440,7 @@
                 </div>
             </div>
 
-            <!-- Configurations Tab -->
-            <div id="configurations-tab" class="tab-container">
-                <h3>Saved Configurations</h3>
-                
-                <div class="form-group">
-                    <input type="text" id="configName" placeholder="Configuration name">
-                    <button class="btn btn-success" onclick="saveConfiguration()">Save Current</button>
-                </div>
-
-                <div class="element-list" id="configurationList">
-                    <!-- Configurations will be listed here -->
-                </div>
-            </div>
+            
         </div>
 
         <div class="content">
@@ -528,6 +526,30 @@
                 <div class="form-group" style="margin-bottom:0.75rem;">
                     <label>Radius (mm)</label>
                     <input type="number" id="eeRadius" step="0.1" min="0">
+                </div>
+            </div>
+            <div id="eeTextFields" style="display:none;">
+                <div class="form-group" style="margin-bottom:0.75rem; display:flex; gap:0.5rem;">
+                    <div style="flex:1;">
+                        <label>X (mm)</label>
+                        <input type="number" id="eeTextX" step="0.1">
+                    </div>
+                    <div style="flex:1;">
+                        <label>Y (mm)</label>
+                        <input type="number" id="eeTextY" step="0.1">
+                    </div>
+                </div>
+                <div class="form-group" style="margin-bottom:0.75rem;">
+                    <label>Rotation (deg)</label>
+                    <input type="number" id="eeTextRotation" step="0.1">
+                </div>
+                <div class="form-group" style="margin-bottom:0.75rem;">
+                    <label>Font size (mm)</label>
+                    <input type="number" id="eeTextSize" step="0.1" min="0">
+                </div>
+                <div class="form-group" style="margin-bottom:0.75rem;">
+                    <label>Text</label>
+                    <input type="text" id="eeTextContent">
                 </div>
             </div>
             <div class="form-group" style="margin-bottom:0.75rem;">
@@ -1168,6 +1190,26 @@
             renderControlPreview();
         }
 
+        function addText() {
+            const pressW = parseFloat(document.getElementById('pressWidth').value) || 300;
+            const pressH = parseFloat(document.getElementById('pressHeight').value) || 200;
+            const x = pressW / 2;
+            const y = pressH / 2;
+            const element = {
+                type: 'text',
+                position: [x, y],
+                rotation: 0,
+                font_size: 10,
+                text: 'Sample Text',
+                color: '#00ffff',
+                label: 'Text ' + (elements.length + 1)
+            };
+            elements.push(element);
+            updateElementList();
+            sendLayoutUpdate();
+            renderControlPreview();
+        }
+
         function updateElementList() {
             const list = document.getElementById('elementList');
             list.innerHTML = '';
@@ -1187,6 +1229,7 @@
         }
 
         let eeIndex = -1;
+        let eeKeyHandler = null;
         function editElement(index) {
             eeIndex = index;
             const element = elements[index];
@@ -1196,18 +1239,25 @@
             const rectFields = document.getElementById('eeRectFields');
             const lineFields = document.getElementById('eeLineFields');
             const circleFields = document.getElementById('eeCircleFields');
+            const textFields = document.getElementById('eeTextFields');
             const widthInput = document.getElementById('eeWidth');
             const heightInput = document.getElementById('eeHeight');
             const lineXInput = document.getElementById('eeLineX');
             const lineYInput = document.getElementById('eeLineY');
             const lineAngleInput = document.getElementById('eeLineAngle');
             const radiusInput = document.getElementById('eeRadius');
+            const textXInput = document.getElementById('eeTextX');
+            const textYInput = document.getElementById('eeTextY');
+            const textRotInput = document.getElementById('eeTextRotation');
+            const textSizeInput = document.getElementById('eeTextSize');
+            const textContentInput = document.getElementById('eeTextContent');
 
             label.value = element.label || '';
             color.value = normalizeColorForInput(element.color || '#00ffff');
             rectFields.style.display = element.type === 'rectangle' ? 'block' : 'none';
             lineFields.style.display = element.type === 'line' ? 'block' : 'none';
             circleFields.style.display = element.type === 'circle' ? 'block' : 'none';
+            textFields.style.display = element.type === 'text' ? 'block' : 'none';
             if (element.type === 'rectangle') {
                 widthInput.value = element.width != null ? element.width : '';
                 heightInput.value = element.height != null ? element.height : '';
@@ -1225,6 +1275,35 @@
             if (element.type === 'circle') {
                 radiusInput.value = element.radius != null ? element.radius : '';
             }
+            if (element.type === 'text') {
+                const [tx, ty] = element.position || [0, 0];
+                textXInput.value = tx != null ? tx : '';
+                textYInput.value = ty != null ? ty : '';
+                textRotInput.value = element.rotation != null ? element.rotation : 0;
+                textSizeInput.value = element.font_size != null ? element.font_size : 10;
+                textContentInput.value = element.text != null ? element.text : '';
+            }
+
+            // live color preview while picker is open
+            color.oninput = (e) => {
+                try { elements[eeIndex].color = e.target.value; } catch (err) {}
+                renderControlPreview();
+            };
+
+            // click outside to close
+            editor.onclick = (e) => { if (e.target === editor) closeElementEditor(); };
+
+            // keyboard: Enter => save, Escape => cancel
+            eeKeyHandler = (e) => {
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    closeElementEditor();
+                } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    saveElementEditor();
+                }
+            };
+            document.addEventListener('keydown', eeKeyHandler);
 
             editor.style.display = 'flex';
         }
@@ -1232,6 +1311,11 @@
         function closeElementEditor() {
             const editor = document.getElementById('elementEditor');
             editor.style.display = 'none';
+            try { document.getElementById('eeColor').blur(); } catch (err) {}
+            if (eeKeyHandler) {
+                document.removeEventListener('keydown', eeKeyHandler);
+                eeKeyHandler = null;
+            }
             eeIndex = -1;
         }
 
@@ -1243,6 +1327,11 @@
             const widthInput = document.getElementById('eeWidth');
             const heightInput = document.getElementById('eeHeight');
             const radiusInput = document.getElementById('eeRadius');
+            const textXInput = document.getElementById('eeTextX');
+            const textYInput = document.getElementById('eeTextY');
+            const textRotInput = document.getElementById('eeTextRotation');
+            const textSizeInput = document.getElementById('eeTextSize');
+            const textContentInput = document.getElementById('eeTextContent');
 
             element.label = label;
             element.color = color;
@@ -1269,6 +1358,16 @@
             } else if (element.type === 'circle') {
                 const r = parseFloat(radiusInput.value);
                 if (!Number.isNaN(r) && r >= 0) element.radius = r;
+            } else if (element.type === 'text') {
+                const tx = parseFloat(textXInput.value);
+                const ty = parseFloat(textYInput.value);
+                const tr = parseFloat(textRotInput.value);
+                const ts = parseFloat(textSizeInput.value);
+                const tc = String(textContentInput.value || '');
+                if (!Number.isNaN(tx) && !Number.isNaN(ty)) element.position = [tx, ty];
+                if (!Number.isNaN(tr)) element.rotation = tr;
+                if (!Number.isNaN(ts) && ts >= 0) element.font_size = ts;
+                element.text = tc;
             }
 
             updateElementList();
@@ -1648,6 +1747,21 @@
                             const bb = cc.bbox();
                             const cx = bb.cx; const cy = bb.cy;
                             el.position = [cx, cy];
+                            renderControlPreview();
+                        });
+                    }
+                } else if (el.type === 'text') {
+                    const [x, y] = el.position || [0, 0];
+                    const fs = el.font_size || 10;
+                    const rot = el.rotation || 0;
+                    const tg = g.group();
+                    if (rot) tg.rotate(rot, x, y);
+                    const tnode = tg.text(el.text || '').font({ size: fs }).fill(el.color || '#0ff').move(x, y);
+                    if (typeof tg.draggable === 'function') {
+                        tg.draggable();
+                        tg.on('dragend', () => {
+                            const bb = tg.bbox();
+                            el.position = [bb.x, bb.y];
                             renderControlPreview();
                         });
                     }

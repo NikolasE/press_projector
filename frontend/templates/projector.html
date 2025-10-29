@@ -299,6 +299,10 @@
                 calibrationMode = true;
                 calibrationPoints = data.points || [];
                 console.log('Calibration mode set, points count:', calibrationPoints.length);
+                // Hide any previously rendered frame image when entering calibration
+                document.getElementById('frameContainer').style.display = 'none';
+                const imgEl = document.getElementById('projectorFrame');
+                if (imgEl) imgEl.src = '';
                 updateCalibrationProjection();
             });
 
@@ -349,10 +353,18 @@
             const container = document.getElementById('svgContainer');
             
             if (calibrationMode) {
+                // Ensure image frame is hidden when showing calibration overlay
+                document.getElementById('frameContainer').style.display = 'none';
+                const imgEl = document.getElementById('projectorFrame');
+                if (imgEl) imgEl.src = '';
                 updateCalibrationProjection();
             } else if (currentSVG) {
                 container.innerHTML = currentSVG;
                 container.style.display = 'flex';
+                // Hide image frame when showing SVG content
+                document.getElementById('frameContainer').style.display = 'none';
+                const imgEl = document.getElementById('projectorFrame');
+                if (imgEl) imgEl.src = '';
                 hideLoadingMessage();
                 hideErrorMessage();
             } else {
@@ -380,6 +392,10 @@
                 return;
             }
             
+            // Hide any previously rendered frame image when showing calibration SVG
+            document.getElementById('frameContainer').style.display = 'none';
+            const imgEl = document.getElementById('projectorFrame');
+            if (imgEl) imgEl.src = '';
             container.innerHTML = svg;
             container.style.display = 'flex';
             hideLoadingMessage();
