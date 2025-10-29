@@ -362,23 +362,12 @@
                         <button class="btn" onclick="toggleInteractiveCalibration()" id="startCalibrationBtn">
                             🎯 Start Interactive Calibration
                         </button>
-                        <span id="calibrationStatus" style="color: #666; font-style: italic;">
-                            Click to start calibration
-                        </span>
+                        <span id="calibrationStatus" style="color: #666; font-style: italic;"></span>
                     </div>
                 </div>
 
 
-                <button class="btn btn-success" onclick="saveCalibration()">Save Calibration</button>
-                <button class="btn" onclick="loadCalibration()">Load Calibration</button>
-                <button class="btn" onclick="validateCalibration()">Validate Quality</button>
-                
-                <div id="calibrationQuality" style="margin-top: 1rem; display: none;">
-                    <div class="alert" id="calibrationQualityAlert">
-                        <h4>Calibration Quality</h4>
-                        <div id="calibrationQualityDetails"></div>
-                    </div>
-                </div>
+                <button class="btn" id="validateBtn" onclick="validateCalibration()">Validate Quality</button>
             </div>
 
             <!-- Layout Tab -->
@@ -460,6 +449,7 @@
                     </div>
                     <div id="layoutPreview" style="width:100%; height:60vh; display:flex; align-items:center; justify-content:center; background:#111; border-radius:4px; overflow:hidden;"></div>
                 </div>
+                <div id="alertsBelow" style="margin-top: 0.75rem;"></div>
             </div>
         </div>
     </div>
@@ -563,6 +553,18 @@
         </div>
     </div>
 
+    <!-- Stop Calibration Confirmation Modal -->
+    <div id="stopCalibrationModal" style="display:none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center;">
+        <div style="background: white; padding: 1rem; border-radius: 8px; width: 340px; max-width: 90vw; box-shadow: 0 10px 30px rgba(0,0,0,0.25);">
+            <h3 style="margin-bottom: 0.5rem;">Stop Calibration?</h3>
+            <p style="margin-bottom: 1rem; color:#333;">Do you want to store the calibration or discard it?</p>
+            <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+                <button class="btn btn-success" id="scmStoreBtn" onclick="onStoreCalibrationFromModal()">Store Calibration</button>
+                <button class="btn" style="background:#7f8c8d;" onclick="onDiscardCalibrationFromModal()">Discard</button>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <!-- SVG.js for frontend SVG composition and interactions -->
     <script src="https://cdn.jsdelivr.net/npm/@svgdotjs/svg.js@3.2/dist/svg.min.js"></script>
@@ -587,6 +589,8 @@
             loadFiles();
             loadConfigurations();
             updateElementList();
+            // Attempt to auto-load last scene after initial data fetch
+            fetchLastSceneAndAutoLoad();
         });
 
         // WebSocket connection
@@ -858,7 +862,7 @@
 
         function toggleInteractiveCalibration() {
             if (calibrationMode) {
-                stopInteractiveCalibration();
+                showStopCalibrationModal();
             } else {
                 startInteractiveCalibration();
             }
@@ -916,6 +920,30 @@
             }
         }
 
+        // Stop Calibration confirmation modal
+        function showStopCalibrationModal() {
+            const modal = document.getElementById('stopCalibrationModal');
+            if (modal) modal.style.display = 'flex';
+            // Focus default button for quick keyboard interaction
+            try { document.getElementById('scmStoreBtn').focus(); } catch (e) {}
+        }
+
+        function hideStopCalibrationModal() {
+            const modal = document.getElementById('stopCalibrationModal');
+            if (modal) modal.style.display = 'none';
+        }
+
+        function onStoreCalibrationFromModal() {
+            hideStopCalibrationModal();
+            // saveCalibration will also stop interactive mode if active
+            saveCalibration();
+        }
+
+        function onDiscardCalibrationFromModal() {
+            hideStopCalibrationModal();
+            stopInteractiveCalibration();
+        }
+
 
         function updateCalibrationPoint(pointId, x, y) {
             const point = calibrationPoints.find(p => p.id === pointId);
@@ -941,26 +969,31 @@
                 return;
             }
             
-            if (!calibrationMode || calibrationPoints[0].x === 0) {
-                showAlert('Please start interactive calibration first and drag the rectangle corners to align with press corners', 'error');
+            // Ensure we have 4 valid points; don't require interactive mode to be currently active
+            if (!Array.isArray(calibrationPoints) || calibrationPoints.length !== 4 ||
+                calibrationPoints.some(p => p == null || isNaN(p.x) || isNaN(p.y))) {
+                showAlert('Calibration points incomplete. Please run interactive calibration and set all 4 corners.', 'error');
                 return;
             }
             
             // Use interactive calibration points
-            const sourcePoints = calibrationPoints.map(p => [p.x, p.y]);
+            const projectorPixels = calibrationPoints.map(p => [p.x, p.y]);
+            // Destination should be the raster canvas size (pre-warp), use projector target resolution
+            const W = projectorTarget.width;
+            const H = projectorTarget.height;
             const destinationPoints = [
                 [0, 0],
-                [width, 0],
-                [width, height],
-                [0, height]
+                [W, 0],
+                [W, H],
+                [0, H]
             ];
 
             fetch('/api/calibration', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    source_points: sourcePoints,
-                    destination_points: destinationPoints,
+                    projector_pixels: projectorPixels,
+                    target_pixels: { width: W, height: H },
                     press_width_mm: width,
                     press_height_mm: height
                 })
@@ -984,114 +1017,24 @@
             });
         }
 
-        function validateCalibration() {
-            fetch('/api/calibration/validate')
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    showAlert('No calibration data found', 'info');
-                    return;
-                }
-                
-                // Show the warped calibration rectangle on projector
-                if (window.socket) {
-                    window.socket.emit('show_validation_pattern');
-                }
-                
-                // Display quality metrics
-                const qualityDiv = document.getElementById('calibrationQuality');
-                const alertDiv = document.getElementById('calibrationQualityAlert');
-                const detailsDiv = document.getElementById('calibrationQualityDetails');
-                
-                // Determine quality level
-                let qualityClass = 'alert-error';
-                let qualityText = 'Poor';
-                let recommendation = 'Recalibration recommended';
-                
-                if (data.valid) {
-                    if (data.max_error_mm < 0.5) {
-                        qualityClass = 'alert-success';
-                        qualityText = 'Excellent';
-                        recommendation = 'Calibration is perfect';
-                    } else if (data.max_error_mm < 1.0) {
-                        qualityClass = 'alert-success';
-                        qualityText = 'Good';
-                        recommendation = 'Calibration is acceptable';
-                    } else {
-                        qualityClass = 'alert-info';
-                        qualityText = 'Acceptable';
-                        recommendation = 'Calibration works but could be improved';
-                    }
-                } else {
-                    qualityClass = 'alert-error';
-                    qualityText = 'Invalid';
-                    recommendation = 'Recalibration required';
-                }
-                
-                alertDiv.className = `alert ${qualityClass}`;
-                
-                detailsDiv.innerHTML = `
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 0.5rem;">
-                        <div>
-                            <strong>Status:</strong> ${data.valid ? '✓ Valid' : '✗ Invalid'}<br>
-                            <strong>Quality:</strong> ${qualityText}<br>
-                            <strong>Max Error:</strong> ${data.max_error_mm.toFixed(2)} mm<br>
-                            <strong>Avg Error:</strong> ${data.avg_error_mm.toFixed(2)} mm<br>
-                            <strong>Pixels/mm:</strong> ${data.pixels_per_mm.toFixed(2)}
-                        </div>
-                        <div>
-                            <strong>Recommendation:</strong><br>
-                            ${recommendation}
-                            ${data.max_error_mm >= 1.0 ? '<br><br>Check:<br>• Corner point measurements<br>• Press dimensions<br>• Projector stability' : ''}
-                        </div>
-                    </div>
-                    <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(0,0,0,0.1);">
-                        <small>
-                            <strong>Quality Guidelines:</strong><br>
-                            Excellent: &lt; 0.5mm | Good: &lt; 1.0mm | Acceptable: &lt; 2.0mm | Poor: &gt; 2.0mm
-                        </small>
-                    </div>
-                    <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(0,0,0,0.1);">
-                        <p style="margin-top: 0.5rem;"><strong>Visual Verification:</strong></p>
-                        <p>The calibration rectangle has been displayed on the projector. Check that all four corners align with your press corners.</p>
-                        <button class="btn" onclick="hideValidationPattern()" style="margin-top: 0.5rem;">Hide Validation Pattern</button>
-                    </div>
-                `;
-                
-                qualityDiv.style.display = 'block';
-            })
-            .catch(error => {
-                showAlert('Error validating calibration: ' + error, 'error');
-            });
-        }
-        
-        function hideValidationPattern() {
-            if (window.socket) {
-                window.socket.emit('hide_validation_pattern');
-            }
-        }
+let validationVisible = false;
+function validateCalibration() {
+    const btn = document.getElementById('validateBtn');
+    if (!window.socket) return;
+    if (validationVisible) {
+        window.socket.emit('hide_validation_pattern');
+        // Immediately re-render and send current scene so it shows again without further edits
+        try { setTimeout(() => renderControlPreview(), 50); } catch (e) {}
+        validationVisible = false;
+        if (btn) btn.textContent = 'Validate Quality';
+    } else {
+        window.socket.emit('show_validation_pattern');
+        validationVisible = true;
+        if (btn) btn.textContent = 'Hide';
+    }
+}
 
-        function loadCalibration() {
-            fetch('/api/calibration')
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    showAlert('No calibration data found', 'info');
-                    return;
-                }
-                
-                // Populate form with loaded data
-                document.getElementById('pressWidth').value = data.press_width_mm;
-                document.getElementById('pressHeight').value = data.press_height_mm;
-                
-                showAlert('Calibration loaded successfully', 'success');
-                // Automatically validate after loading
-                setTimeout(() => validateCalibration(), 500);
-            })
-            .catch(error => {
-                showAlert('Error loading calibration: ' + error, 'error');
-            });
-        }
+        // loadCalibration removed from UI; keeping function is unnecessary, so it's removed.
 
         // Layout functions
         function updateObjectOrientation() {
@@ -1548,12 +1491,26 @@
                 updateLayoutForm();
                 updateElementList();
                 sendLayoutUpdate();
+                // Prefill scene name for quick save
+                try { document.getElementById('configName').value = name; } catch (e) {}
                 
                 showAlert('Configuration loaded successfully', 'success');
             })
             .catch(error => {
                 showAlert('Load error: ' + error, 'error');
             });
+        }
+
+        function fetchLastSceneAndAutoLoad() {
+            fetch('/api/last-scene')
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                const last = data && data.name ? data.name : null;
+                if (!last) return;
+                // Only auto-load if it exists in the current list, otherwise try anyway
+                loadConfiguration(last);
+            })
+            .catch(() => {});
         }
 
         function updateLayoutForm() {
@@ -1572,11 +1529,11 @@
 
         // Utility functions
         function showAlert(message, type) {
-            const alerts = document.getElementById('alerts');
+            const targetContainer = document.getElementById('alertsBelow');
             const alert = document.createElement('div');
             alert.className = `alert alert-${type}`;
             alert.textContent = message;
-            alerts.appendChild(alert);
+            targetContainer.appendChild(alert);
             
             setTimeout(() => {
                 alert.remove();
@@ -1844,7 +1801,11 @@
             if (!window.socket) return;
             if (renderTimer) cancelAnimationFrame(renderTimer);
             renderTimer = requestAnimationFrame(() => {
-                const svgString = rootSvgNode.outerHTML;
+                // Wrap inner preview SVG content into a proper root SVG sized by projector ratio
+                const pressW = parseFloat(document.getElementById('pressWidth').value) || 300;
+                const pressH = parseFloat(document.getElementById('pressHeight').value) || 200;
+                const inner = rootSvgNode.innerHTML || '';
+                const svgString = `\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${pressW} ${pressH}" preserveAspectRatio="none">\n${inner}\n</svg>`;
                 window.socket.emit('render_svg', {
                     svg: svgString,
                     target_width: projectorTarget.width,

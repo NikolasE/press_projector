@@ -171,9 +171,7 @@
             <span class="status-indicator" id="connectionStatus"></span>
             <span id="connectionText">Connecting...</span>
         </div>
-        <div id="calibrationInfo" class="calibration-info">
-            Calibration: Not available
-        </div>
+        <div id="calibrationInfo" class="calibration-info"></div>
     </div>
 
     <div class="projector-container">
@@ -201,9 +199,7 @@
             <span id="temperatureInfo">Temperature: --°C</span>
             <span id="durationInfo">Duration: --s</span>
         </div>
-        <div class="calibration-info">
-            Press area: <span id="pressAreaInfo">Not calibrated</span>
-        </div>
+        
     </div>
 
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
@@ -321,6 +317,23 @@
 
             // Store socket globally
             window.socket = socket;
+
+            // Debounced projector resolution reporting on resize/orientation/fullscreen changes
+            let resTimer = null;
+            function reportResolutionDebounced() {
+                if (!window.socket) return;
+                if (resTimer) clearTimeout(resTimer);
+                resTimer = setTimeout(() => {
+                    try {
+                        const width = window.innerWidth || screen.width || 1920;
+                        const height = window.innerHeight || screen.height || 1080;
+                        window.socket.emit('projector_resolution', { width, height });
+                    } catch (e) { console.log('Resolution report failed', e); }
+                }, 150);
+            }
+            window.addEventListener('resize', reportResolutionDebounced);
+            window.addEventListener('orientationchange', reportResolutionDebounced);
+            document.addEventListener('fullscreenchange', reportResolutionDebounced);
         }
 
         function updateConnectionStatus(connected) {
@@ -329,9 +342,12 @@
             const text = document.getElementById('connectionText');
             
             if (connected) {
-                status.className = 'status-indicator status-connected';
-                text.textContent = 'Connected';
+                // Hide the indicator and text entirely when connected
+                status.style.display = 'none';
+                text.textContent = '';
             } else {
+                // Show red indicator and "Disconnected" text when not connected
+                status.style.display = 'inline-block';
                 status.className = 'status-indicator status-disconnected';
                 text.textContent = 'Disconnected';
             }
@@ -340,12 +356,9 @@
         function updateCalibrationInfo(calibration) {
             const info = document.getElementById('calibrationInfo');
             if (calibration && calibration.press_width_mm && calibration.press_height_mm) {
-                info.textContent = `Press: ${calibration.press_width_mm}×${calibration.press_height_mm}mm`;
-                
-                const pressArea = document.getElementById('pressAreaInfo');
-                pressArea.textContent = `${calibration.press_width_mm}×${calibration.press_height_mm}mm`;
+                info.textContent = '';
             } else {
-                info.textContent = 'Calibration: Not available';
+                info.textContent = '';
             }
         }
 

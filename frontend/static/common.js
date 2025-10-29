@@ -296,20 +296,21 @@ class DrawingElementManager {
 
         let svg = line.outerHTML;
         
-        if (element.label) {
-            const text = SVGUtils.createText(
-                (start.x + end.x) / 2,
-                (start.y + end.y) / 2 - 5,
-                element.label,
-                {
-                    fill: '#ffffff',
-                    'font-family': 'Arial, sans-serif',
-                    'font-size': '16px',
-                    'text-anchor': 'middle'
-                }
-            );
-            svg += text.outerHTML;
-        }
+        // Don't render labels during rasterization
+        // if (element.label) {
+        //     const text = SVGUtils.createText(
+        //         (start.x + end.x) / 2,
+        //         (start.y + end.y) / 2 - 5,
+        //         element.label,
+        //         {
+        //             fill: '#ffffff',
+        //             'font-family': 'Arial, sans-serif',
+        //             'font-size': '16px',
+        //             'text-anchor': 'middle'
+        //         }
+        //     );
+        //     svg += text.outerHTML;
+        // }
         
         return svg;
     }
@@ -327,20 +328,21 @@ class DrawingElementManager {
 
         let svg = rect.outerHTML;
         
-        if (element.label) {
-            const text = SVGUtils.createText(
-                pos.x + width / 2,
-                pos.y + height / 2,
-                element.label,
-                {
-                    fill: '#ffffff',
-                    'font-family': 'Arial, sans-serif',
-                    'font-size': '16px',
-                    'text-anchor': 'middle'
-                }
-            );
-            svg += text.outerHTML;
-        }
+        // Don't render labels during rasterization
+        // if (element.label) {
+        //     const text = SVGUtils.createText(
+        //         pos.x + width / 2,
+        //         pos.y + height / 2,
+        //         element.label,
+        //         {
+        //             fill: '#ffffff',
+        //             'font-family': 'Arial, sans-serif',
+        //             'font-size': '16px',
+        //             'text-anchor': 'middle'
+        //         }
+        //     );
+        //     svg += text.outerHTML;
+        // }
         
         return svg;
     }
@@ -357,20 +359,21 @@ class DrawingElementManager {
 
         let svg = circle.outerHTML;
         
-        if (element.label) {
-            const text = SVGUtils.createText(
-                pos.x,
-                pos.y + 5,
-                element.label,
-                {
-                    fill: '#ffffff',
-                    'font-family': 'Arial, sans-serif',
-                    'font-size': '16px',
-                    'text-anchor': 'middle'
-                }
-            );
-            svg += text.outerHTML;
-        }
+        // Don't render labels during rasterization
+        // if (element.label) {
+        //     const text = SVGUtils.createText(
+        //         pos.x,
+        //         pos.y + 5,
+        //         element.label,
+        //         {
+        //             fill: '#ffffff',
+        //             'font-family': 'Arial, sans-serif',
+        //             'font-size': '16px',
+        //             'text-anchor': 'middle'
+        //         }
+        //     );
+        //     svg += text.outerHTML;
+        // }
         
         return svg;
     }

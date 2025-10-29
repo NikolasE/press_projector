@@ -72,6 +72,7 @@ class FileBasedDB(DB_interface):
         self.calibration_file = os.path.join(base_path, "calibration.json")
         self.jobs_dir = os.path.join(base_path, "jobs")
         self.configs_dir = os.path.join(base_path, "configurations")
+        self.last_scene_file = os.path.join(base_path, "last_scene.json")
         
         # Create directories if they don't exist
         os.makedirs(self.jobs_dir, exist_ok=True)
@@ -172,6 +173,32 @@ class FileBasedDB(DB_interface):
         except Exception as e:
             print(f"Error deleting configuration {config_name}: {e}")
             return False
+
+    # ===== Last scene helpers =====
+    def set_last_scene(self, name: str) -> bool:
+        """Persist the last loaded scene name."""
+        try:
+            data = {"name": name}
+            with open(self.last_scene_file, 'w') as f:
+                json.dump(data, f, indent=2)
+            return True
+        except Exception as e:
+            print(f"Error saving last scene name: {e}")
+            return False
+
+    def get_last_scene(self) -> Optional[str]:
+        """Return the last loaded scene name if available."""
+        try:
+            if os.path.exists(self.last_scene_file):
+                with open(self.last_scene_file, 'r') as f:
+                    data = json.load(f)
+                    name = data.get('name')
+                    if isinstance(name, str) and name:
+                        return name
+            return None
+        except Exception as e:
+            print(f"Error loading last scene name: {e}")
+            return None
 
 
 # Example usage and testing

@@ -167,7 +167,8 @@ class ProjectorManager:
                 y_mm = self.current_layout["center_lines"]["horizontal"]
                 y_px = self.calibrator.press_to_projector(0, y_mm)[1]
                 lines.append(f'<line x1="0" y1="{y_px}" x2="{width}" y2="{y_px}" class="center-line"/>')
-                lines.append(f'<text x="10" y="{y_px-10}" fill="red" font-size="14">H: {y_mm:.1f}mm</text>')
+                # Don't render labels during rasterization
+                # lines.append(f'<text x="10" y="{y_px-10}" fill="red" font-size="14">H: {y_mm:.1f}mm</text>')
             except Exception as e:
                 print(f"Error generating horizontal center line: {e}")
         
@@ -177,7 +178,8 @@ class ProjectorManager:
                 x_mm = self.current_layout["center_lines"]["vertical"]
                 x_px = self.calibrator.press_to_projector(x_mm, 0)[0]
                 lines.append(f'<line x1="{x_px}" y1="0" x2="{x_px}" y2="{height}" class="center-line"/>')
-                lines.append(f'<text x="{x_px+10}" y="20" fill="red" font-size="14">V: {x_mm:.1f}mm</text>')
+                # Don't render labels during rasterization
+                # lines.append(f'<text x="{x_px+10}" y="20" fill="red" font-size="14">V: {x_mm:.1f}mm</text>')
             except Exception as e:
                 print(f"Error generating vertical center line: {e}")
         
@@ -213,8 +215,8 @@ class ProjectorManager:
         x1_px, y1_px = self.calibrator.press_to_projector(x1_mm, y1_mm)
         x2_px, y2_px = self.calibrator.press_to_projector(x2_mm, y2_mm)
         
-        label = element.get("label", "")
-        label_svg = f'<text x="{(x1_px+x2_px)/2}" y="{(y1_px+y2_px)/2-5}" class="element-text">{label}</text>' if label else ""
+        # Don't render labels during rasterization
+        label_svg = ""
         color = element.get("color", "#00ffff")
         
         return f'<line x1="{x1_px}" y1="{y1_px}" x2="{x2_px}" y2="{y2_px}" class="guide-line" stroke="{color}" stroke-width="2"/>{label_svg}'
@@ -231,8 +233,8 @@ class ProjectorManager:
         width_px = self.calibrator.mm_to_pixels(width_mm)
         height_px = self.calibrator.mm_to_pixels(height_mm)
         
-        label = element.get("label", "")
-        label_svg = f'<text x="{x_px + width_px/2}" y="{y_px + height_px/2}" class="element-text">{label}</text>' if label else ""
+        # Don't render labels during rasterization
+        label_svg = ""
         
         if rotation != 0:
             center_x = x_px + width_px / 2
@@ -255,8 +257,8 @@ class ProjectorManager:
         x_px, y_px = self.calibrator.press_to_projector(x_mm, y_mm)
         radius_px = self.calibrator.mm_to_pixels(radius_mm)
         
-        label = element.get("label", "")
-        label_svg = f'<text x="{x_px}" y="{y_px+5}" class="element-text">{label}</text>' if label else ""
+        # Don't render labels during rasterization
+        label_svg = ""
         
         return f'<circle cx="{x_px}" cy="{y_px}" r="{radius_px}" class="element-shape" fill="none" stroke="{color}" stroke-width="2"/>{label_svg}'
     

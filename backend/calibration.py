@@ -19,6 +19,8 @@ class Calibrator:
         self.press_width_mm = None
         self.press_height_mm = None
         self.pixels_per_mm = None
+
+    
     
     def set_calibration_points(self, source_points: List[List[float]], 
                               destination_points: List[List[float]],
@@ -44,22 +46,22 @@ class Calibrator:
         self.press_width_mm = press_width_mm
         self.press_height_mm = press_height_mm
         
-        # Compute transformation matrix
-        self.transformation_matrix = cv2.getPerspectiveTransform(
-            self.source_points, self.destination_points
-        )
-        
-        # Calculate pixels per mm for scaling
-        # Use average of width and height ratios
-        src_width = np.linalg.norm(self.source_points[1] - self.source_points[0])
-        src_height = np.linalg.norm(self.source_points[2] - self.source_points[1])
-        dst_width = np.linalg.norm(self.destination_points[1] - self.destination_points[0])
-        dst_height = np.linalg.norm(self.destination_points[2] - self.destination_points[1])
-        
-        self.pixels_per_mm = (src_width / dst_width + src_height / dst_height) / 2
-        
+        # Compute matrix and pixels_per_mm using current factor
+        self._recompute_matrix_and_ppm()
         print(f"Calibration successful. Pixels per mm: {self.pixels_per_mm:.2f}")
         return True
+
+    def set_calibration_from_target(self, source_points: List[List[float]],
+                                    target_width_px: int, target_height_px: int,
+                                    press_width_mm: float, press_height_mm: float) -> bool:
+        """Convenience: build destination rectangle from target raster size."""
+        destination_points = [
+            [0.0, 0.0],
+            [float(target_width_px), 0.0],
+            [float(target_width_px), float(target_height_px)],
+            [0.0, float(target_height_px)]
+        ]
+        return self.set_calibration_points(source_points, destination_points, press_width_mm, press_height_mm)
     
     def is_calibrated(self) -> bool:
         """Check if calibration is complete."""
@@ -149,28 +151,63 @@ class Calibrator:
         if not self.is_calibrated():
             return {}
         
+        # Derive target pixel size from destination rectangle
+        try:
+            dw = float(self.destination_points[1][0] - self.destination_points[0][0])
+            dh = float(self.destination_points[2][1] - self.destination_points[1][1])
+        except Exception:
+            dw, dh = 0.0, 0.0
+
         return {
-            "source_points": self.source_points.tolist(),
-            "destination_points": self.destination_points.tolist(),
+            "projector_pixels": self.source_points.tolist(),
+            "target_pixels": {"width": int(round(dw)), "height": int(round(dh))},
             "press_width_mm": self.press_width_mm,
             "press_height_mm": self.press_height_mm,
-            "transformation_matrix": self.transformation_matrix.tolist(),
-            "pixels_per_mm": self.pixels_per_mm
+            # Do not persist transformation_matrix
+            "pixels_per_mm": round(self.pixels_per_mm, 3)
         }
     
     def load_calibration_data(self, data: Dict[str, Any]) -> bool:
         """Load calibration data from saved data."""
         try:
-            self.source_points = np.array(data["source_points"], dtype=np.float32)
-            self.destination_points = np.array(data["destination_points"], dtype=np.float32)
+            # Require new key 'projector_pixels'
+            self.source_points = np.array(data["projector_pixels"], dtype=np.float32)
+            # Require new target_pixels format
+            tp = data["target_pixels"]
+            tw = int(tp.get("width", 0))
+            th = int(tp.get("height", 0))
+            self.destination_points = np.array([[0,0],[tw,0],[tw,th],[0,th]], dtype=np.float32)
             self.press_width_mm = data["press_width_mm"]
             self.press_height_mm = data["press_height_mm"]
-            self.transformation_matrix = np.array(data["transformation_matrix"], dtype=np.float32)
-            self.pixels_per_mm = data["pixels_per_mm"]
+            # Recompute matrix and pixels_per_mm from points and sizes
+            self._recompute_matrix_and_ppm()
             return True
         except KeyError as e:
             print(f"Error loading calibration data: missing key {e}")
             return False
+
+    def _recompute_matrix_and_ppm(self) -> None:
+        """Recompute perspective matrix and pixels_per_mm using current state."""
+        if self.source_points is None or self.destination_points is None:
+            self.transformation_matrix = None
+            self.pixels_per_mm = None
+            return
+        # Compute transformation matrix using raw source points
+        self.transformation_matrix = cv2.getPerspectiveTransform(
+            self.source_points, self.destination_points
+        )
+        # Compute pixels_per_mm based on projector pixel space (unscaled)
+        try:
+            src_width = np.linalg.norm(self.source_points[1] - self.source_points[0])
+            src_height = np.linalg.norm(self.source_points[2] - self.source_points[1])
+            if self.press_width_mm and self.press_height_mm and self.press_width_mm > 0 and self.press_height_mm > 0:
+                ppm_w = src_width / float(self.press_width_mm)
+                ppm_h = src_height / float(self.press_height_mm)
+                self.pixels_per_mm = (ppm_w + ppm_h) / 2.0
+            else:
+                self.pixels_per_mm = 1.0
+        except Exception:
+            self.pixels_per_mm = 1.0
     
     def validate_calibration_quality(self) -> Dict[str, Any]:
         """
