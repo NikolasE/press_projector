@@ -8,6 +8,7 @@ import uuid
 from typing import List, Dict, Any, Optional
 from werkzeug.utils import secure_filename
 import json
+import logging
 
 
 class FileManager:
@@ -85,7 +86,7 @@ class FileManager:
                 return True
             return False
         except Exception as e:
-            print(f"Error deleting file {filename}: {e}")
+            logging.getLogger(__name__).exception("Error deleting file %s", filename)
             return False
     
     def list_files(self) -> List[Dict[str, Any]]:
@@ -105,7 +106,7 @@ class FileManager:
                         "url": f"/uploads/{filename}"
                     })
         except Exception as e:
-            print(f"Error listing files: {e}")
+            logging.getLogger(__name__).exception("Error listing files")
         
         return files
     
@@ -125,7 +126,7 @@ class FileManager:
                     "url": f"/uploads/{filename}"
                 }
         except Exception as e:
-            print(f"Error getting file info for {filename}: {e}")
+            logging.getLogger(__name__).exception("Error getting file info for %s", filename)
         
         return None
     
@@ -154,7 +155,7 @@ class FileManager:
             return result
             
         except Exception as e:
-            print(f"Error processing SVG file {filepath}: {e}")
+            logging.getLogger(__name__).exception("Error processing SVG file %s", filepath)
             return {
                 "valid": False,
                 "error": str(e),
@@ -259,46 +260,11 @@ class FileManager:
                         os.remove(filepath)
                         cleaned_count += 1
         except Exception as e:
-            print(f"Error during cleanup: {e}")
+            logging.getLogger(__name__).exception("Error during cleanup")
         
         return cleaned_count
 
 
 # Example usage and testing
 if __name__ == "__main__":
-    file_manager = FileManager()
-    
-    # Test file listing
-    files = file_manager.list_files()
-    print(f"Found {len(files)} files:")
-    for file_info in files:
-        print(f"  {file_info['filename']} ({file_info['size']} bytes)")
-    
-    # Test SVG processing
-    test_svg = '''<?xml version="1.0" encoding="UTF-8"?>
-<svg width="200" height="100" xmlns="http://www.w3.org/2000/svg">
-    <rect x="10" y="10" width="50" height="30" fill="red"/>
-    <circle cx="100" cy="50" r="20" fill="blue"/>
-    <line x1="150" y1="20" x2="180" y2="80" stroke="green" stroke-width="2"/>
-</svg>'''
-    
-    # Save test SVG
-    test_file = "test_design.svg"
-    with open(os.path.join(file_manager.upload_dir, test_file), 'w') as f:
-        f.write(test_svg)
-    
-    # Process it
-    result = file_manager.process_svg_file(os.path.join(file_manager.upload_dir, test_file))
-    print(f"\nSVG processing result:")
-    print(f"  Valid: {result['valid']}")
-    print(f"  Elements: {len(result['elements'])}")
-    print(f"  Dimensions: {result['dimensions']}")
-    
-    # Test helping lines
-    lines_data = [
-        {"x1": 0, "y1": 50, "x2": 200, "y2": 50, "stroke": "#ff0000"},
-        {"x1": 100, "y1": 0, "x2": 100, "y2": 100, "stroke": "#00ff00"}
-    ]
-    
-    helping_lines_svg = file_manager.create_helping_lines_svg(lines_data)
-    print(f"\nHelping lines SVG:\n{helping_lines_svg}")
+    pass

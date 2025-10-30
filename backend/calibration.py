@@ -38,7 +38,6 @@ class Calibrator:
             bool: True if calibration successful
         """
         if len(source_points) != 4 or len(destination_points) != 4:
-            print("Error: Exactly 4 points required for calibration")
             return False
         
         self.source_points = np.array(source_points, dtype=np.float32)
@@ -48,7 +47,6 @@ class Calibrator:
         
         # Compute matrix and pixels_per_mm using current factor
         self._recompute_matrix_and_ppm()
-        print(f"Calibration successful. Pixels per mm: {self.pixels_per_mm:.2f}")
         return True
 
     def set_calibration_from_target(self, source_points: List[List[float]],
@@ -183,7 +181,6 @@ class Calibrator:
             self._recompute_matrix_and_ppm()
             return True
         except KeyError as e:
-            print(f"Error loading calibration data: missing key {e}")
             return False
 
     def _recompute_matrix_and_ppm(self) -> None:
@@ -247,35 +244,3 @@ class Calibrator:
 
 
 # Example usage and testing
-if __name__ == "__main__":
-    calibrator = Calibrator()
-    
-    # Example calibration points
-    source_points = [[100, 100], [500, 100], [500, 400], [100, 400]]
-    destination_points = [[0, 0], [300, 0], [300, 200], [0, 200]]
-    
-    success = calibrator.set_calibration_points(
-        source_points, destination_points, 300, 200
-    )
-    
-    if success:
-        print("Calibration successful!")
-        
-        # Test coordinate conversion
-        test_x, test_y = calibrator.press_to_projector(150, 100)
-        print(f"Press (150, 100) -> Projector ({test_x:.1f}, {test_y:.1f})")
-        
-        test_x_back, test_y_back = calibrator.projector_to_press(test_x, test_y)
-        print(f"Projector ({test_x:.1f}, {test_y:.1f}) -> Press ({test_x_back:.1f}, {test_y_back:.1f})")
-        
-        # Test scaling
-        print(f"10mm = {calibrator.mm_to_pixels(10):.1f} pixels")
-        print(f"100 pixels = {calibrator.pixels_to_mm(100):.1f}mm")
-        
-        # Generate boundary pattern
-        boundary = calibrator.generate_press_boundary_pattern()
-        print(f"Press boundary pattern: {boundary}")
-        
-        # Validate calibration
-        validation = calibrator.validate_calibration_quality()
-        print(f"Calibration validation: {validation}")

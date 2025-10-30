@@ -8,6 +8,7 @@ import json
 import os
 from typing import Dict, List, Optional, Any
 from datetime import datetime
+import logging
 
 
 class DB_interface(ABC):
@@ -85,7 +86,7 @@ class FileBasedDB(DB_interface):
                 json.dump(data, f, indent=2)
             return True
         except Exception as e:
-            print(f"Error saving to {filepath}: {e}")
+            logging.getLogger(__name__).exception("Error saving to %s", filepath)
             return False
     
     def _load_json(self, filepath: str) -> Optional[Dict[str, Any]]:
@@ -96,7 +97,7 @@ class FileBasedDB(DB_interface):
                     return json.load(f)
             return None
         except Exception as e:
-            print(f"Error loading from {filepath}: {e}")
+            logging.getLogger(__name__).exception("Error loading from %s", filepath)
             return None
     
     def save_calibration(self, calibration_data: Dict[str, Any]) -> bool:
@@ -147,7 +148,7 @@ class FileBasedDB(DB_interface):
             files = [f for f in os.listdir(self.configs_dir) if f.endswith('.json')]
             return [f[:-5] for f in files]  # Remove .json extension
         except Exception as e:
-            print(f"Error listing configurations: {e}")
+            logging.getLogger(__name__).exception("Error listing configurations")
             return []
     
     def delete_job(self, job_id: str) -> bool:
@@ -159,7 +160,7 @@ class FileBasedDB(DB_interface):
                 return True
             return False
         except Exception as e:
-            print(f"Error deleting job {job_id}: {e}")
+            logging.getLogger(__name__).exception("Error deleting job %s", job_id)
             return False
     
     def delete_configuration(self, config_name: str) -> bool:
@@ -171,7 +172,7 @@ class FileBasedDB(DB_interface):
                 return True
             return False
         except Exception as e:
-            print(f"Error deleting configuration {config_name}: {e}")
+            logging.getLogger(__name__).exception("Error deleting configuration %s", config_name)
             return False
 
     # ===== Last scene helpers =====
@@ -183,7 +184,7 @@ class FileBasedDB(DB_interface):
                 json.dump(data, f, indent=2)
             return True
         except Exception as e:
-            print(f"Error saving last scene name: {e}")
+            logging.getLogger(__name__).exception("Error saving last scene name")
             return False
 
     def get_last_scene(self) -> Optional[str]:
@@ -197,34 +198,10 @@ class FileBasedDB(DB_interface):
                         return name
             return None
         except Exception as e:
-            print(f"Error loading last scene name: {e}")
+            logging.getLogger(__name__).exception("Error loading last scene name")
             return None
 
 
 # Example usage and testing
 if __name__ == "__main__":
-    db = FileBasedDB()
-    
-    # Test calibration
-    calibration_data = {
-        "source_points": [[100, 100], [500, 100], [500, 400], [100, 400]],
-        "destination_points": [[0, 0], [300, 0], [300, 200], [0, 200]],
-        "press_width_mm": 300,
-        "press_height_mm": 200,
-        "transformation_matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
-    }
-    
-    print("Saving calibration:", db.save_calibration(calibration_data))
-    print("Loading calibration:", db.load_calibration())
-    
-    # Test job
-    job_data = {
-        "design_file": "test_design.png",
-        "position": {"x": 50, "y": 50},
-        "temperature": 180,
-        "duration": 60
-    }
-    
-    print("Saving job:", db.save_job("test_job", job_data))
-    print("Loading job:", db.load_job("test_job"))
-    print("Listing jobs:", db.list_jobs())
+    pass

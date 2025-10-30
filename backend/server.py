@@ -14,6 +14,7 @@ import cv2
 import cairosvg
 from threading import Timer
 import re
+import logging
 
 from database import FileBasedDB
 from calibration import Calibrator
@@ -31,6 +32,16 @@ app.config['SECRET_KEY'] = 'press_projector_secret_key_2024'
 # Initialize SocketIO
 socketio = SocketIO(app, cors_allowed_origins="*")
 
+# Configure logging to file
+os.makedirs('debug', exist_ok=True)
+logging.basicConfig(
+    level=logging.INFO,
+    filename=os.path.join('debug', 'press_projector.log'),
+    filemode='a',
+    format='%(asctime)s %(levelname)s %(name)s %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 # Initialize components
 db = FileBasedDB()
 calibrator = Calibrator()
@@ -43,17 +54,13 @@ _layout_state = {
 _show_boundary_pattern = False
 
 def pj_set_object_orientation(angle_degrees: float):
-    print(f"[pj_set_object_orientation] angle_degrees={angle_degrees!r}")
     _layout_state['object_orientation'] = float(angle_degrees or 0)
-    print(f"[pj_set_object_orientation] state now: {_layout_state['object_orientation']}")
 
 def pj_set_center_lines(horizontal_y=None, vertical_x=None):
-    print(f"[pj_set_center_lines] horizontal_y={horizontal_y!r}, vertical_x={vertical_x!r}")
     if horizontal_y is not None:
         _layout_state['center_lines']['horizontal'] = horizontal_y
     if vertical_x is not None:
         _layout_state['center_lines']['vertical'] = vertical_x
-    print(f"[pj_set_center_lines] state now: {_layout_state['center_lines']}")
 
 def pj_clear_layout():
     # Only clear elements; preserve center lines and object orientation
@@ -73,21 +80,20 @@ def pj_set_boundary_pattern_visibility(visible: bool):
 
 def _svg_center_lines(width: int, height: int) -> str:
     lines = []
-    print(f"[_svg_center_lines] state: {_layout_state['center_lines']}")
     try:
         y_mm = _layout_state['center_lines']['horizontal']
         if y_mm is not None:
             y_px = calibrator.press_to_projector(0, y_mm)[1]
             lines.append(f'<line x1="0" y1="{y_px}" x2="{width}" y2="{y_px}" class="center-line"/>')
     except Exception as e:
-        print(f"center line H err: {e}")
+        logger.exception("center line H err")
     try:
         x_mm = _layout_state['center_lines']['vertical']
         if x_mm is not None:
             x_px = calibrator.press_to_projector(x_mm, 0)[0]
             lines.append(f'<line x1="{x_px}" y1="0" x2="{x_px}" y2="{height}" class="center-line"/>')
     except Exception as e:
-        print(f"center line V err: {e}")
+        logger.exception("center line V err")
     return '\n'.join(lines)
 
 def _svg_element(el: Dict[str, Any]) -> str:
@@ -135,7 +141,7 @@ def _svg_element(el: Dict[str, Any]) -> str:
             if aspect and aspect > 0:
                 h_mm = float(w_mm) * float(aspect)
         except Exception as e:
-            print(f"Failed to compute image aspect ratio for {url}: {e}")
+            logger.exception("Failed to compute image aspect ratio for %s", url)
             h_mm = w_mm
         # Convert metric sizes to pixels using calibration
         w_px = abs(calibrator.press_to_projector(w_mm, 0)[0] - calibrator.press_to_projector(0,0)[0])
@@ -236,32 +242,14 @@ def encode_filename_to_data_url(filename: str):
 
 def inline_upload_image_links(svg_str: str) -> str:
     """Replace href/xlink:href that point to /uploads with data URLs."""
-    def repl_xlink_rel(match):
-        filename = match.group(1)
+    def repl(match):
+        attr = match.group(1)
+        filename = match.group(2)
         data_url = encode_filename_to_data_url(filename)
-        return f'xlink:href="{data_url}"' if data_url else match.group(0)
+        return f'{attr}="{data_url}"' if data_url else match.group(0)
 
-    def repl_xlink_abs(match):
-        filename = match.group(1)
-        data_url = encode_filename_to_data_url(filename)
-        return f'xlink:href="{data_url}"' if data_url else match.group(0)
-
-    def repl_href_rel(match):
-        filename = match.group(1)
-        data_url = encode_filename_to_data_url(filename)
-        return f'href="{data_url}"' if data_url else match.group(0)
-
-    def repl_href_abs(match):
-        filename = match.group(1)
-        data_url = encode_filename_to_data_url(filename)
-        return f'href="{data_url}"' if data_url else match.group(0)
-
-    out = svg_str
-    out = re.sub(r'xlink:href="/uploads/([^"]+)"', repl_xlink_rel, out)
-    out = re.sub(r'xlink:href="https?://[^\"]+/uploads/([^"]+)"', repl_xlink_abs, out)
-    out = re.sub(r'href="/uploads/([^"]+)"', repl_href_rel, out)
-    out = re.sub(r'href="https?://[^\"]+/uploads/([^"]+)"', repl_href_abs, out)
-    return out
+    pattern = r'(xlink:href|href)="(?:(?:https?://[^\"]+)?/)?uploads/([^"]+)"'
+    return re.sub(pattern, repl, svg_str)
 
 def extract_upload_filename(url: str):
     """Extract filename from a URL that points to uploads, handling absolute/relative forms."""
@@ -348,7 +336,14 @@ def save_control_svg(svg_content: str, filename: str = 'control_latest.svg'):
         except Exception:
             pass
     except Exception as e:
-        print(f"Failed to save control SVG: {e}")
+        logger.exception("Failed to save control SVG")
+
+def send_layout_update_to_control(layout_data: Dict[str, Any], svg_content: str) -> None:
+    socketio.emit('layout_updated', {
+        'layout': layout_data,
+        'svg': svg_content
+    }, room='control')
+
 
 def broadcast_layout_update():
     """Broadcast current layout to all projectors."""
@@ -361,13 +356,9 @@ def broadcast_layout_update():
             save_control_svg(svg_content)
         except Exception:
             pass
-        print(f"[emit layout_updated:broadcast] sending center_lines: {layout_data.get('center_lines')}")
-        socketio.emit('layout_updated', {
-            'layout': layout_data,
-            'svg': svg_content
-        }, room='control')
+        send_layout_update_to_control(layout_data, svg_content)
     except Exception as e:
-        print(f"Error broadcasting layout update: {e}")
+        logger.exception("Error broadcasting layout update")
     
     # Schedule next update in 2 seconds
     periodic_update_timer = Timer(2.0, broadcast_layout_update)
@@ -583,14 +574,7 @@ def update_layout():
             pass
         # Notify control UI only; projector consumes rasterized frames
         try:
-            socketio.emit('layout_updated', {
-                'layout': projector.get_layout_data(),
-                'svg': svg_content
-            }, room='control')
-            try:
-                print(f"[emit layout_updated:REST] sending center_lines: {projector.get_layout_data().get('center_lines')}")
-            except Exception:
-                pass
+            send_layout_update_to_control(projector.get_layout_data(), svg_content)
         except Exception:
             pass
         # Ensure calibration overlay is not shown during normal edits
@@ -751,13 +735,13 @@ def last_scene():
 @socketio.on('connect')
 def handle_connect():
     """Handle client connection."""
-    print(f"Client connected: {request.sid}")
+    pass
 
 
 @socketio.on('disconnect')
 def handle_disconnect():
     """Handle client disconnection."""
-    print(f"Client disconnected: {request.sid}")
+    pass
     
     # Remove from connected clients
     for client_type, client_id in connected_clients.items():
@@ -773,7 +757,7 @@ def handle_join_room(data):
     if room in ['control', 'projector']:
         join_room(room)
         connected_clients[room] = request.sid
-        print(f"Client {request.sid} joined room: {room}")
+        pass
         
         # Send current state to new client
         if room == 'projector':
@@ -805,7 +789,7 @@ def handle_leave_room(data):
         leave_room(room)
         if connected_clients[room] == request.sid:
             connected_clients[room] = None
-        print(f"Client {request.sid} left room: {room}")
+        pass
 
 
 @socketio.on('request_update')
@@ -825,16 +809,9 @@ def handle_request_update():
             save_control_svg(svg_content)
         except Exception:
             pass
-        try:
-            print(f"[emit layout_updated:request_update] sending center_lines: {layout_data.get('center_lines')}")
-        except Exception:
-            pass
-        emit('layout_updated', {
-            'layout': layout_data,
-            'svg': svg_content
-        }, room='control')
-    except Exception:
-        pass
+        send_layout_update_to_control(layout_data, svg_content)
+    except Exception as e:
+        logger.exception("Error handling request_update")
 
 
 @socketio.on('layout_update')
@@ -847,12 +824,10 @@ def handle_layout_update(data):
         
         if 'center_lines' in data:
             center_lines = data['center_lines']
-            print(f"[WS layout_update] incoming center_lines: {center_lines}")
             projector.set_center_lines(
                 horizontal_y=center_lines.get('horizontal'),
                 vertical_x=center_lines.get('vertical')
             )
-            print(f"[WS layout_update] stored center_lines: {_layout_state['center_lines']}")
         
         if 'elements' in data:
             # Clear existing elements and add new ones
@@ -868,14 +843,7 @@ def handle_layout_update(data):
             pass
         # Notify control UI only
         try:
-            emit('layout_updated', {
-                'layout': projector.get_layout_data(),
-                'svg': svg_content
-            }, room='control')
-            try:
-                print(f"[emit layout_updated:WS] sending center_lines: {projector.get_layout_data().get('center_lines')}")
-            except Exception:
-                pass
+            send_layout_update_to_control(projector.get_layout_data(), svg_content)
         except Exception:
             pass
         # Ensure calibration overlay is not shown during normal edits
@@ -885,26 +853,10 @@ def handle_layout_update(data):
             pass
         
     except Exception as e:
-        print(f"Error handling layout update: {e}")
+        logger.exception("Error handling layout update")
 
 
-# @socketio.on('toggle_boundary_pattern')
-# def handle_toggle_boundary_pattern():
-#     """Handle boundary pattern toggle."""
-#     try:
-#         # Toggle boundary pattern visibility
-#         current_visibility = projector.show_boundary_pattern
-#         projector.set_boundary_pattern_visibility(not current_visibility)
-        
-#         # Generate and send updated SVG
-#         svg_content = projector.generate_svg()
-#         emit('boundary_pattern_toggled', {
-#             'visible': not current_visibility,
-#             'svg': svg_content
-#         }, room='projector')
-        
-#     except Exception as e:
-#         print(f"Error toggling boundary pattern: {e}")
+ 
 
 
 @socketio.on('show_validation_pattern')
@@ -932,7 +884,7 @@ def handle_show_validation_pattern():
             if saved:
                 calibrator.load_calibration_data(saved)
         except Exception as e:
-            print(f"Failed to reload calibration before showing points: {e}")
+            logger.exception("Failed to reload calibration before showing points")
 
         try:
             src = getattr(calibrator, 'source_points', None)
@@ -951,10 +903,10 @@ def handle_show_validation_pattern():
                         'press_height_mm': getattr(calibrator, 'press_height_mm', None)
                     }, room='projector')
         except Exception as e:
-            print(f"Failed to show saved calibration corner points: {e}")
+            logger.exception("Failed to show saved calibration corner points")
         
     except Exception as e:
-        print(f"Error showing validation pattern: {e}")
+        logger.exception("Error showing validation pattern")
 
 
 @socketio.on('hide_validation_pattern')
@@ -979,20 +931,19 @@ def handle_hide_validation_pattern():
         try:
             emit('stop_calibration', room='projector')
         except Exception as e:
-            print(f"Failed to stop calibration overlay: {e}")
+            logger.exception("Failed to stop calibration overlay")
         
     except Exception as e:
-        print(f"Error hiding validation pattern: {e}")
+        logger.exception("Error hiding validation pattern")
 
 
 @socketio.on('start_calibration')
 def handle_start_calibration(data):
     """Handle start of interactive calibration."""
     try:
-        print(f"Starting calibration with points: {data['points']}")
         emit('start_calibration', data, room='projector')
     except Exception as e:
-        print(f"Error starting calibration: {e}")
+        logger.exception("Error starting calibration")
 
 
 @socketio.on('update_calibration_points')
@@ -1002,7 +953,7 @@ def handle_update_calibration_points(data):
         emit('update_calibration_points', data, room='projector')
         emit('update_calibration_points', data, room='control')
     except Exception as e:
-        print(f"Error updating calibration points: {e}")
+        logger.exception("Error updating calibration points")
 
 
 @socketio.on('calibration_point_dragged')
@@ -1012,7 +963,7 @@ def handle_calibration_point_dragged(data):
         # Forward to control interface
         emit('calibration_point_dragged', data, room='control')
     except Exception as e:
-        print(f"Error handling calibration point drag: {e}")
+        logger.exception("Error handling calibration point drag")
 
 
 @socketio.on('calibration_point_selected')
@@ -1022,17 +973,16 @@ def handle_calibration_point_selected(data):
         # Forward to control interface
         emit('calibration_point_selected', data, room='control')
     except Exception as e:
-        print(f"Error handling calibration point selection: {e}")
+        logger.exception("Error handling calibration point selection")
 
 
 @socketio.on('stop_calibration')
 def handle_stop_calibration():
     """Handle stop of interactive calibration."""
     try:
-        print("Stopping calibration")
         emit('stop_calibration', room='projector')
     except Exception as e:
-        print(f"Error stopping calibration: {e}")
+        logger.exception("Error stopping calibration")
 @socketio.on('projector_resolution')
 def handle_projector_resolution(data):
     """Receive projector reported resolution and broadcast to control."""
@@ -1048,10 +998,10 @@ def handle_projector_resolution(data):
             with open(os.path.join(debug_dir, 'projector_resolution.json'), 'w') as fp:
                 json.dump(projector_resolution, fp, indent=2)
         except Exception as e:
-            print(f"Failed to save projector resolution: {e}")
+            logger.exception("Failed to save projector resolution")
         emit('projector_resolution', projector_resolution, room='control')
     except Exception as e:
-        print(f"Error handling projector resolution: {e}")
+        logger.exception("Error handling projector resolution")
 
 
 @socketio.on('set_debug_mode')
@@ -1060,9 +1010,8 @@ def handle_set_debug_mode(data):
     global debug_bypass_warp
     try:
         debug_bypass_warp = bool(data.get('bypass_warp', False))
-        print(f"Debug bypass warp set to {debug_bypass_warp}")
     except Exception as e:
-        print(f"Error setting debug mode: {e}")
+        logger.exception("Error setting debug mode")
 
 
 def _perform_render_svg(data):
@@ -1090,7 +1039,7 @@ def _perform_render_svg(data):
         with open(svg_filepath, 'w', encoding='utf-8') as f:
             f.write(pretty_svg)
     except Exception as e:
-        print(f"Failed to save SVG to disk: {e}")
+        logger.exception("Failed to save SVG to disk")
 
     png_bytes = cairosvg.svg2png(bytestring=svg_processed.encode('utf-8'), output_width=target_w, output_height=target_h)
 
@@ -1098,7 +1047,6 @@ def _perform_render_svg(data):
     buf = np.frombuffer(png_bytes, dtype=np.uint8)
     img = cv2.imdecode(buf, cv2.IMREAD_UNCHANGED)
     if img is None:
-        print('Failed to decode rasterized SVG')
         return
 
     # Save the unwarped press-space image for debugging
@@ -1107,7 +1055,7 @@ def _perform_render_svg(data):
         os.makedirs(debug_dir, exist_ok=True)
         cv2.imwrite(os.path.join(debug_dir, 'latest_unwarped.png'), img)
     except Exception as e:
-        print(f"Failed to save unwarped render images: {e}")
+        logger.exception("Failed to save unwarped render images")
 
     out_w, out_h = projector_resolution['width'], projector_resolution['height']
 
@@ -1127,11 +1075,10 @@ def _perform_render_svg(data):
         cv2.imwrite(os.path.join(debug_dir, 'latest_unwarped.png'), img)
         cv2.imwrite(os.path.join(debug_dir, 'latest.png'), warped)
     except Exception as e:
-        print(f"Failed to save debug render images: {e}")
+        logger.exception("Failed to save debug render images")
 
     ok, enc = cv2.imencode('.png', warped)
     if not ok:
-        print('PNG encode failed')
         return
     b64 = base64.b64encode(enc.tobytes()).decode('ascii')
     emit('projector_frame', {'image': b64}, room='projector')
@@ -1158,7 +1105,7 @@ def handle_render_svg(data):
             try:
                 _perform_render_svg(current)
             except Exception as e:
-                print(f"Error rendering SVG: {e}")
+                logger.exception("Error rendering SVG")
             # Grab the latest pending render (if any), then clear it
             current = pending_render
             pending_render = None
@@ -1171,15 +1118,10 @@ if __name__ == '__main__':
     calibration_data = db.load_calibration()
     if calibration_data:
         calibrator.load_calibration_data(calibration_data)
-        print("Loaded existing calibration data")
     
     # Start periodic updates
     start_periodic_updates()
-    print("Started periodic layout updates (every 2 seconds)")
     
     # Start server
-    print("Starting Press Projector Server...")
-    print("Control interface: http://localhost:5000/control")
-    print("Projector view: http://localhost:5000/projector")
     
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)
