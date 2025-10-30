@@ -1120,32 +1120,55 @@
                 previewControls.style.display = 'block';
             }
             
-            // Calculate initial rectangle (25% of screen, centered)
-            const screenWidth = 1920; // Default projector resolution
-            const screenHeight = 1080;
-            const rectWidth = screenWidth * 0.25;
-            const rectHeight = screenHeight * 0.25;
-            const centerX = screenWidth / 2;
-            const centerY = screenHeight / 2;
-            
-            // Set initial calibration points
-            calibrationPoints[0] = { id: 'tl', x: centerX - rectWidth/2, y: centerY - rectHeight/2, label: 'Top Left' };
-            calibrationPoints[1] = { id: 'tr', x: centerX + rectWidth/2, y: centerY - rectHeight/2, label: 'Top Right' };
-            calibrationPoints[2] = { id: 'br', x: centerX + rectWidth/2, y: centerY + rectHeight/2, label: 'Bottom Right' };
-            calibrationPoints[3] = { id: 'bl', x: centerX - rectWidth/2, y: centerY + rectHeight/2, label: 'Bottom Left' };
-            
-            // Render the preview
-            renderCalibrationPreview();
-            
-            // Send calibration rectangle to projector
-            if (window.socket) {
-                try { window.socket.emit('set_projection_mode', { mode: 'svg' }); } catch (e) {}
-                window.socket.emit('start_calibration', {
-                    points: calibrationPoints,
-                    press_width_mm: width,
-                    press_height_mm: height
+            // Try to initialize from existing calibration if available
+            const useExisting = () => {
+                // Calculate initial rectangle (25% of screen, centered) as fallback
+                const screenWidth = projectorTarget.width || 1920;
+                const screenHeight = projectorTarget.height || 1080;
+                const rectWidth = screenWidth * 0.25;
+                const rectHeight = screenHeight * 0.25;
+                const centerX = screenWidth / 2;
+                const centerY = screenHeight / 2;
+                calibrationPoints[0] = { id: 'tl', x: centerX - rectWidth/2, y: centerY - rectHeight/2, label: 'Top Left' };
+                calibrationPoints[1] = { id: 'tr', x: centerX + rectWidth/2, y: centerY - rectHeight/2, label: 'Top Right' };
+                calibrationPoints[2] = { id: 'br', x: centerX + rectWidth/2, y: centerY + rectHeight/2, label: 'Bottom Right' };
+                calibrationPoints[3] = { id: 'bl', x: centerX - rectWidth/2, y: centerY + rectHeight/2, label: 'Bottom Left' };
+            };
+
+            const proceed = () => {
+                renderCalibrationPreview();
+                if (window.socket) {
+                    try { window.socket.emit('set_projection_mode', { mode: 'svg' }); } catch (e) {}
+                    window.socket.emit('start_calibration', {
+                        points: calibrationPoints,
+                        press_width_mm: width,
+                        press_height_mm: height
+                    });
+                }
+            };
+
+            // Fetch existing calibration; if found, use projector_pixels to seed points
+            fetch('/api/calibration')
+                .then(r => r.ok ? r.json() : null)
+                .then(data => {
+                    if (data && Array.isArray(data.projector_pixels) && data.projector_pixels.length === 4) {
+                        const src = data.projector_pixels;
+                        calibrationPoints = [
+                            { id: 'tl', x: src[0][0], y: src[0][1], label: 'Top Left' },
+                            { id: 'tr', x: src[1][0], y: src[1][1], label: 'Top Right' },
+                            { id: 'br', x: src[2][0], y: src[2][1], label: 'Bottom Right' },
+                            { id: 'bl', x: src[3][0], y: src[3][1], label: 'Bottom Left' }
+                        ];
+                    } else {
+                        useExisting();
+                    }
+                })
+                .catch(() => {
+                    useExisting();
+                })
+                .finally(() => {
+                    proceed();
                 });
-            }
         }
 
         function stopInteractiveCalibration() {
