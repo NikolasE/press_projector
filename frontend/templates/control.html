@@ -500,17 +500,7 @@
                     
                     <!-- Corner Selection and Arrow Controls -->
                     <div style="margin-bottom: 1rem;">
-                        <label style="display: block; margin-bottom: 0.5rem; font-weight: bold;">Select Corner:</label>
-                        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem;">
-                            <button class="btn btn-sm" onclick="selectCalibrationCorner(0)" id="cornerBtn0" style="background: #ff0000; color: white;">TL</button>
-                            <button class="btn btn-sm" onclick="selectCalibrationCorner(1)" id="cornerBtn1" style="background: #00ff00; color: black;">TR</button>
-                            <button class="btn btn-sm" onclick="selectCalibrationCorner(2)" id="cornerBtn2" style="background: #0000ff; color: white;">BR</button>
-                            <button class="btn btn-sm" onclick="selectCalibrationCorner(3)" id="cornerBtn3" style="background: #ffff00; color: black;">BL</button>
-                        </div>
-                    </div>
-                    
-                    <div style="margin-bottom: 1rem;">
-                        <label style="display: block; margin-bottom: 0.5rem; font-weight: bold;">Fine Adjust (1 pixel steps):</label>
+                        <div style="color: #666; font-size: 0.9rem; margin-bottom: 0.5rem;">Click a corner to select it, then use arrow buttons or keyboard to adjust</div>
                         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.25rem; max-width: 300px;">
                             <div></div>
                             <button class="btn" style="padding: 0.5rem; aspect-ratio: 2;" onclick="nudgeCalibrationCorner(0, -1)" title="Up (1 px)">⬆️</button>
@@ -1100,9 +1090,6 @@
                 previewControls.style.display = 'none';
             }
             
-            // Update corner selection UI
-            updateCornerSelectionUI();
-            
             // Stop calibration on projector
             if (window.socket) {
                 window.socket.emit('stop_calibration');
@@ -1153,23 +1140,8 @@
         function selectCalibrationCorner(index) {
             if (index !== null && (index < 0 || index > 3)) return;
             selectedCalibrationCorner = index;
-            updateCornerSelectionUI();
-        }
-
-        // Update UI to show which corner is selected
-        function updateCornerSelectionUI() {
-            for (let i = 0; i < 4; i++) {
-                const btn = document.getElementById(`cornerBtn${i}`);
-                if (btn) {
-                    if (i === selectedCalibrationCorner) {
-                        btn.style.outline = '3px solid #000';
-                        btn.style.fontWeight = 'bold';
-                    } else {
-                        btn.style.outline = '';
-                        btn.style.fontWeight = 'normal';
-                    }
-                }
-            }
+            // Re-render to show selection
+            renderCalibrationPreview();
         }
 
         // Render the calibration preview SVG
@@ -1208,11 +1180,14 @@
             const handles = calibrationPoints.map((point, index) => {
                 const x = (point.x * scaleX).toFixed(1);
                 const y = (point.y * scaleY).toFixed(1);
-                const selected = index === selectedCalibrationCorner ? 'stroke-width="4" stroke="white"' : 'stroke-width="2" stroke="white"';
+                const selected = index === selectedCalibrationCorner;
+                const strokeStyle = selected ? 'stroke-width="4" stroke="white"' : 'stroke-width="2" stroke="white"';
+                const outerCircle = selected ? `<circle cx="${x}" cy="${y}" r="22" fill="none" stroke="#fff" stroke-width="3" style="pointer-events: none;"/>` : '';
                 return `
                     <g class="calibration-handle" data-index="${index}">
-                        <circle cx="${x}" cy="${y}" r="15" fill="${colors[index]}" ${selected} style="cursor: grab;" />
-                        <text x="${x}" y="${parseFloat(y) + 5}" fill="white" text-anchor="middle" font-size="10" font-weight="bold">${labels[index]}</text>
+                        ${outerCircle}
+                        <circle cx="${x}" cy="${y}" r="15" fill="${colors[index]}" ${strokeStyle} style="cursor: grab;" />
+                        <text x="${x}" y="${parseFloat(y) + 5}" fill="white" text-anchor="middle" font-size="10" font-weight="bold" style="pointer-events: none;">${labels[index]}</text>
                     </g>
                 `;
             }).join('');
@@ -2351,6 +2326,8 @@ function validateCalibration() {
                             if (pre.naturalWidth && pre.naturalHeight) {
                                 const ratio = pre.naturalHeight / pre.naturalWidth;
                                 applySize(w * ratio);
+                                // After correcting size, re-send SVG for rasterization
+                                try { scheduleRenderSend(root.node); } catch (e) {}
                             }
                         };
                         pre.src = url;

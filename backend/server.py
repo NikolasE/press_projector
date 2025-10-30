@@ -284,6 +284,40 @@ def get_image_aspect_ratio_from_url(url: str):
         print(f"Failed to read image for aspect ratio {url}: {e}")
     return None
 
+def adjust_upload_image_heights(svg_str: str) -> str:
+    """Ensure <image> elements referencing uploads have height set by aspect ratio.
+    Uses element width and measured image aspect to compute height in the same units.
+    """
+    def replace_image_tag(match: re.Match) -> str:
+        tag = match.group(0)
+        # Find href within this tag
+        href_m = re.search(r'(?:xlink:href|href)="([^"]+)"', tag)
+        if not href_m:
+            return tag
+        url = href_m.group(1)
+        aspect = get_image_aspect_ratio_from_url(url)
+        if not aspect or aspect <= 0:
+            return tag
+        # Find width value
+        w_m = re.search(r'\bwidth="([0-9]+(?:\.[0-9]+)?)"', tag)
+        if not w_m:
+            return tag
+        try:
+            w_val = float(w_m.group(1))
+        except Exception:
+            return tag
+        h_val = w_val * float(aspect)
+        # Replace or add height attribute with computed value
+        if re.search(r'\bheight="', tag):
+            tag = re.sub(r'\bheight="[0-9]+(?:\.[0-9]+)?"', f'height="{h_val}"', tag)
+        else:
+            # Insert before closing
+            tag = re.sub(r'/?>$', f' height="{h_val}"\g<0>', tag)
+        # Also fix rotation centers if present (optional: leave as-is; projector warping uses pixel image)
+        return tag
+    # Only process <image ...> tags
+    return re.sub(r'<image\b[^>]*?>', replace_image_tag, svg_str)
+
 def save_control_svg(svg_content: str, filename: str = 'control_latest.svg'):
     """Persist the latest control-screen SVG to disk, pretty-printed."""
     try:
@@ -988,8 +1022,9 @@ def handle_render_svg(data):
             return
         target_w = int(data.get('target_width', projector_resolution['width']))
         target_h = int(data.get('target_height', projector_resolution['height']))
-        # Inline uploaded image links via a helper
-        svg_processed = inline_upload_image_links(svg_str)
+        # First correct image heights based on aspect, then inline links
+        svg_processed = adjust_upload_image_heights(svg_str)
+        svg_processed = inline_upload_image_links(svg_processed)
         
         # Save SVG to disk before rasterizing (with pretty printing)
         try:
