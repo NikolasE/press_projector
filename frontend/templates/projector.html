@@ -172,7 +172,6 @@
             <span id="connectionText">Connecting...</span>
         </div>
         <div id="calibrationInfo" class="calibration-info"></div>
-        <div class="calibration-info" id="modeInfo"></div>
     </div>
 
     <div class="projector-container">
@@ -221,6 +220,7 @@
         let lastFrameAt = 0;
         let lastFrameUrl = '';
         let preferFrames = true;
+        let noDataTimer = null; // delay before showing "No projection data available"
 
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
@@ -297,7 +297,7 @@
                 console.log('Boundary pattern toggled:', data);
                 currentSVG = data.svg;
                 preferFrames = false;
-                updateModeInfo();
+                
                 updateProjection();
             });
 
@@ -310,9 +310,11 @@
                 document.getElementById('svgContainer').style.display = 'none';
                 hideLoadingMessage();
                 hideErrorMessage();
+                // Cancel any pending no-data warning now that we have a frame
+                try { if (noDataTimer) { clearTimeout(noDataTimer); noDataTimer = null; } } catch (e) {}
                 lastFrameAt = Date.now();
                 preferFrames = true;
-                updateModeInfo();
+                
             });
 
             // Explicit mode control
@@ -344,7 +346,7 @@
                 document.getElementById('frameContainer').style.display = 'none';
                 const imgEl = document.getElementById('projectorFrame');
                 if (imgEl) imgEl.src = '';
-                updateModeInfo();
+                
                 updateCalibrationProjection();
             });
 
@@ -360,7 +362,7 @@
                 calibrationPoints = [];
                 selectedCalibrationCorner = null; // Reset selection
                 preferFrames = true;
-                updateModeInfo();
+                
                 updateProjection();
             });
 
@@ -411,24 +413,22 @@
             }
         }
 
-        function updateModeInfo() {
-            try {
-                const el = document.getElementById('modeInfo');
-                const modeText = calibrationMode || !preferFrames ? 'Mode: SVG' : 'Mode: Frames';
-                el.textContent = modeText;
-            } catch (e) {}
-        }
+        
 
         function updateProjection() {
             const container = document.getElementById('svgContainer');
             
             if (calibrationMode) {
+                // Cancel any pending no-data warning while in calibration mode
+                try { if (noDataTimer) { clearTimeout(noDataTimer); noDataTimer = null; } } catch (e) {}
                 // Ensure image frame is hidden when showing calibration overlay
                 document.getElementById('frameContainer').style.display = 'none';
                 const imgEl = document.getElementById('projectorFrame');
                 if (imgEl) imgEl.src = '';
                 updateCalibrationProjection();
             } else if (currentSVG) {
+                // We have SVG data; cancel any pending no-data warning
+                try { if (noDataTimer) { clearTimeout(noDataTimer); noDataTimer = null; } } catch (e) {}
                 container.innerHTML = currentSVG;
                 container.style.display = 'flex';
                 // Hide image frame when showing SVG content
@@ -438,7 +438,13 @@
                 hideLoadingMessage();
                 hideErrorMessage();
             } else {
-                showErrorMessage('No projection data available');
+                // Delay showing the no-data warning to avoid brief flashes
+                try { if (noDataTimer) clearTimeout(noDataTimer); } catch (e) {}
+                try {
+                    noDataTimer = setTimeout(() => {
+                        showErrorMessage('No projection data available');
+                    }, 2000);
+                } catch (e) {}
             }
         }
 

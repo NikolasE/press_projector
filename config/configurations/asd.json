@@ -1,5 +1,6 @@
 {
   "layout": {
+    "object_orientation": 0,
     "center_lines": {
       "horizontal": 102,
       "vertical": 117
@@ -10,8 +11,8 @@
         "font_size": 10,
         "label": "Temp",
         "position": [
-          3.117319345474243,
-          182.69073486328125
+          15.1,
+          184.4
         ],
         "rotation": 0,
         "text": "180, 2min",
@@ -19,14 +20,15 @@
       },
       {
         "height": 30,
-        "label": "Rectangle 3",
+        "label": "FrontTop",
         "position": [
-          185.47561645507812,
-          35.982784271240234
+          116.5,
+          125.2
         ],
         "rotation": 0,
         "type": "rectangle",
-        "width": 50
+        "width": 50,
+        "color": "#00ffff"
       },
       {
         "color": "#00ffff",
@@ -34,27 +36,40 @@
         "image_url": "http://127.0.0.1:5000/uploads/wide.png",
         "label": "Image 4",
         "position": [
-          127.47771453857422,
-          0.903965950012207
+          122.0007095336914,
+          26.238296508789062
         ],
         "rotation": 0,
         "type": "image",
         "width": 120
       },
       {
-        "type": "line",
-        "start": [
-          105.3824462890625,
-          -14.3531494140625
-        ],
         "end": [
-          155.3824462890625,
-          35.6468505859375
+          93.697265625,
+          8.08056640625
         ],
-        "label": "Line 4"
+        "label": "Line 4",
+        "start": [
+          43.697265625,
+          -41.91943359375
+        ],
+        "type": "line"
+      },
+      {
+        "color": "#00ffff",
+        "height": 75.07836990595611,
+        "image_url": "http://127.0.0.1:5000/uploads/ubuntu.png",
+        "label": "Image 5",
+        "position": [
+          116.4000015258789,
+          50.20000076293945
+        ],
+        "rotation": 0,
+        "type": "image",
+        "width": 100,
+        "opacity": 0.85
       }
-    ],
-    "object_orientation": 0
+    ]
   },
   "elements": [
     {
@@ -62,8 +77,8 @@
       "font_size": 10,
       "label": "Temp",
       "position": [
-        3.117319345474243,
-        182.69073486328125
+        15.1,
+        184.4
       ],
       "rotation": 0,
       "text": "180, 2min",
@@ -71,14 +86,15 @@
     },
     {
       "height": 30,
-      "label": "Rectangle 3",
+      "label": "FrontTop",
       "position": [
-        185.47561645507812,
-        35.982784271240234
+        64.75306701660156,
+        45.50217056274414
       ],
       "rotation": 0,
       "type": "rectangle",
-      "width": 50
+      "width": 50,
+      "color": "#00ffff"
     },
     {
       "color": "#00ffff",
@@ -86,26 +102,40 @@
       "image_url": "http://127.0.0.1:5000/uploads/wide.png",
       "label": "Image 4",
       "position": [
-        127.47771453857422,
-        0.903965950012207
+        122.0007095336914,
+        26.238296508789062
       ],
       "rotation": 0,
       "type": "image",
       "width": 120
     },
     {
-      "type": "line",
-      "start": [
-        105.3824462890625,
-        -14.3531494140625
-      ],
       "end": [
-        155.3824462890625,
-        35.6468505859375
+        93.697265625,
+        8.08056640625
       ],
-      "label": "Line 4"
+      "label": "Line 4",
+      "start": [
+        43.697265625,
+        -41.91943359375
+      ],
+      "type": "line"
+    },
+    {
+      "color": "#00ffff",
+      "height": 75.07836990595611,
+      "image_url": "http://127.0.0.1:5000/uploads/ubuntu.png",
+      "label": "Image 5",
+      "position": [
+        116.4000015258789,
+        50.20000076293945
+      ],
+      "rotation": 0,
+      "type": "image",
+      "width": 100,
+      "opacity": 0.85
     }
   ],
   "config_name": "asd",
-  "timestamp": "2025-10-30T11:18:19.373851"
+  "timestamp": "2025-10-30T12:19:04.901111"
 }

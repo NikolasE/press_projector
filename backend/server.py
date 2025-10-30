@@ -43,18 +43,21 @@ _layout_state = {
 _show_boundary_pattern = False
 
 def pj_set_object_orientation(angle_degrees: float):
+    print(f"[pj_set_object_orientation] angle_degrees={angle_degrees!r}")
     _layout_state['object_orientation'] = float(angle_degrees or 0)
+    print(f"[pj_set_object_orientation] state now: {_layout_state['object_orientation']}")
 
 def pj_set_center_lines(horizontal_y=None, vertical_x=None):
+    print(f"[pj_set_center_lines] horizontal_y={horizontal_y!r}, vertical_x={vertical_x!r}")
     if horizontal_y is not None:
         _layout_state['center_lines']['horizontal'] = horizontal_y
     if vertical_x is not None:
         _layout_state['center_lines']['vertical'] = vertical_x
+    print(f"[pj_set_center_lines] state now: {_layout_state['center_lines']}")
 
 def pj_clear_layout():
+    # Only clear elements; preserve center lines and object orientation
     _layout_state['elements'] = []
-    _layout_state['center_lines'] = { 'horizontal': None, 'vertical': None }
-    _layout_state['object_orientation'] = 0.0
 
 def pj_add_element(element_type: str, element_data: Dict[str, Any]):
     ed = dict(element_data)
@@ -70,6 +73,7 @@ def pj_set_boundary_pattern_visibility(visible: bool):
 
 def _svg_center_lines(width: int, height: int) -> str:
     lines = []
+    print(f"[_svg_center_lines] state: {_layout_state['center_lines']}")
     try:
         y_mm = _layout_state['center_lines']['horizontal']
         if y_mm is not None:
@@ -201,6 +205,10 @@ debug_bypass_warp = False
 
 # Periodic update timer
 periodic_update_timer = None
+
+# Render coalescing state: drop intermediate renders while one is in progress
+is_rendering = False
+pending_render = None
 
 # Use fixed 2x supersampling when rasterizing SVG prior to warping
 
@@ -353,6 +361,7 @@ def broadcast_layout_update():
             save_control_svg(svg_content)
         except Exception:
             pass
+        print(f"[emit layout_updated:broadcast] sending center_lines: {layout_data.get('center_lines')}")
         socketio.emit('layout_updated', {
             'layout': layout_data,
             'svg': svg_content
@@ -553,10 +562,12 @@ def update_layout():
         
         if 'center_lines' in data:
             center_lines = data['center_lines']
+            print(f"[REST /api/layout] incoming center_lines: {center_lines}")
             projector.set_center_lines(
                 horizontal_y=center_lines.get('horizontal'),
                 vertical_x=center_lines.get('vertical')
             )
+            print(f"[REST /api/layout] stored center_lines: {_layout_state['center_lines']}")
         
         if 'elements' in data:
             # Clear existing elements and add new ones
@@ -576,6 +587,10 @@ def update_layout():
                 'layout': projector.get_layout_data(),
                 'svg': svg_content
             }, room='control')
+            try:
+                print(f"[emit layout_updated:REST] sending center_lines: {projector.get_layout_data().get('center_lines')}")
+            except Exception:
+                pass
         except Exception:
             pass
         # Ensure calibration overlay is not shown during normal edits
@@ -810,6 +825,10 @@ def handle_request_update():
             save_control_svg(svg_content)
         except Exception:
             pass
+        try:
+            print(f"[emit layout_updated:request_update] sending center_lines: {layout_data.get('center_lines')}")
+        except Exception:
+            pass
         emit('layout_updated', {
             'layout': layout_data,
             'svg': svg_content
@@ -828,10 +847,12 @@ def handle_layout_update(data):
         
         if 'center_lines' in data:
             center_lines = data['center_lines']
+            print(f"[WS layout_update] incoming center_lines: {center_lines}")
             projector.set_center_lines(
                 horizontal_y=center_lines.get('horizontal'),
                 vertical_x=center_lines.get('vertical')
             )
+            print(f"[WS layout_update] stored center_lines: {_layout_state['center_lines']}")
         
         if 'elements' in data:
             # Clear existing elements and add new ones
@@ -851,6 +872,10 @@ def handle_layout_update(data):
                 'layout': projector.get_layout_data(),
                 'svg': svg_content
             }, room='control')
+            try:
+                print(f"[emit layout_updated:WS] sending center_lines: {projector.get_layout_data().get('center_lines')}")
+            except Exception:
+                pass
         except Exception:
             pass
         # Ensure calibration overlay is not shown during normal edits
@@ -1040,84 +1065,105 @@ def handle_set_debug_mode(data):
         print(f"Error setting debug mode: {e}")
 
 
+def _perform_render_svg(data):
+    """Perform the actual rasterization and emission of one SVG payload."""
+    svg_str = data.get('svg', '')
+    if not svg_str:
+        return
+    target_w = int(data.get('target_width', projector_resolution['width']))
+    target_h = int(data.get('target_height', projector_resolution['height']))
+    # First correct image heights based on aspect, then inline links
+    svg_processed = adjust_upload_image_heights(svg_str)
+    svg_processed = inline_upload_image_links(svg_processed)
+
+    # Save SVG to disk before rasterizing (with pretty printing)
+    try:
+        import xml.dom.minidom
+        debug_dir = os.path.join('debug', 'renders')
+        os.makedirs(debug_dir, exist_ok=True)
+        svg_filepath = os.path.join(debug_dir, 'latest.svg')
+
+        # Parse and pretty-print the SVG
+        dom = xml.dom.minidom.parseString(svg_processed.encode('utf-8'))
+        pretty_svg = dom.toprettyxml(indent="  ", encoding=None)
+
+        with open(svg_filepath, 'w', encoding='utf-8') as f:
+            f.write(pretty_svg)
+    except Exception as e:
+        print(f"Failed to save SVG to disk: {e}")
+
+    png_bytes = cairosvg.svg2png(bytestring=svg_processed.encode('utf-8'), output_width=target_w, output_height=target_h)
+
+    # Decode PNG to image (BGRA)
+    buf = np.frombuffer(png_bytes, dtype=np.uint8)
+    img = cv2.imdecode(buf, cv2.IMREAD_UNCHANGED)
+    if img is None:
+        print('Failed to decode rasterized SVG')
+        return
+
+    # Save the unwarped press-space image for debugging
+    try:
+        debug_dir = os.path.join('debug', 'renders')
+        os.makedirs(debug_dir, exist_ok=True)
+        cv2.imwrite(os.path.join(debug_dir, 'latest_unwarped.png'), img)
+    except Exception as e:
+        print(f"Failed to save unwarped render images: {e}")
+
+    out_w, out_h = projector_resolution['width'], projector_resolution['height']
+
+    # Warp unless bypassed
+    if not debug_bypass_warp and calibrator.is_calibrated():
+        H = calibrator.transformation_matrix
+        H_inv = np.linalg.inv(H)
+        warped = cv2.warpPerspective(img, H_inv, (out_w, out_h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT)
+    else:
+        warped = cv2.resize(img, (out_w, out_h), interpolation=cv2.INTER_LINEAR)
+
+    # Write debug images to disk (only keep the latest)
+    try:
+        debug_dir = os.path.join('debug', 'renders')
+        os.makedirs(debug_dir, exist_ok=True)
+        # Save the high-res unwarped raster
+        cv2.imwrite(os.path.join(debug_dir, 'latest_unwarped.png'), img)
+        cv2.imwrite(os.path.join(debug_dir, 'latest.png'), warped)
+    except Exception as e:
+        print(f"Failed to save debug render images: {e}")
+
+    ok, enc = cv2.imencode('.png', warped)
+    if not ok:
+        print('PNG encode failed')
+        return
+    b64 = base64.b64encode(enc.tobytes()).decode('ascii')
+    emit('projector_frame', {'image': b64}, room='projector')
+    try:
+        emit('set_projection_mode', { 'mode': 'frames' }, room='projector')
+    except Exception:
+        pass
+
+
 @socketio.on('render_svg')
 def handle_render_svg(data):
-    """Rasterize incoming SVG and (optionally) warp for projector; then broadcast frame."""
+    """Coalesce rapid render requests: keep only the newest while rendering."""
+    global is_rendering, pending_render
     try:
-        svg_str = data.get('svg', '')
-        if not svg_str:
-            return
-        target_w = int(data.get('target_width', projector_resolution['width']))
-        target_h = int(data.get('target_height', projector_resolution['height']))
-        # First correct image heights based on aspect, then inline links
-        svg_processed = adjust_upload_image_heights(svg_str)
-        svg_processed = inline_upload_image_links(svg_processed)
-        
-        # Save SVG to disk before rasterizing (with pretty printing)
-        try:
-            import xml.dom.minidom
-            debug_dir = os.path.join('debug', 'renders')
-            os.makedirs(debug_dir, exist_ok=True)
-            svg_filepath = os.path.join(debug_dir, 'latest.svg')
-            
-            # Parse and pretty-print the SVG
-            dom = xml.dom.minidom.parseString(svg_processed.encode('utf-8'))
-            pretty_svg = dom.toprettyxml(indent="  ", encoding=None)
-            
-            with open(svg_filepath, 'w', encoding='utf-8') as f:
-                f.write(pretty_svg)
-        except Exception as e:
-            print(f"Failed to save SVG to disk: {e}")
-
-        png_bytes = cairosvg.svg2png(bytestring=svg_processed.encode('utf-8'), output_width=target_w, output_height=target_h)
-
-        # Decode PNG to image (BGRA)
-        buf = np.frombuffer(png_bytes, dtype=np.uint8)
-        img = cv2.imdecode(buf, cv2.IMREAD_UNCHANGED)
-        if img is None:
-            print('Failed to decode rasterized SVG')
+        # If a render is in progress, replace any pending payload with the newest and return
+        if is_rendering:
+            pending_render = data
             return
 
-        # Save the unwarped press-space image for debugging
-        try:
-            debug_dir = os.path.join('debug', 'renders')
-            os.makedirs(debug_dir, exist_ok=True)
-            cv2.imwrite(os.path.join(debug_dir, 'latest_unwarped.png'), img)
-        except Exception as e:
-            print(f"Failed to save unwarped render images: {e}")
-
-        out_w, out_h = projector_resolution['width'], projector_resolution['height']
-
-        # Warp unless bypassed
-        if not debug_bypass_warp and calibrator.is_calibrated():
-            H = calibrator.transformation_matrix
-            H_inv = np.linalg.inv(H)
-            warped = cv2.warpPerspective(img, H_inv, (out_w, out_h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT)
-        else:
-            warped = cv2.resize(img, (out_w, out_h), interpolation=cv2.INTER_LINEAR)
-
-        # Write debug images to disk (only keep the latest)
-        try:
-            debug_dir = os.path.join('debug', 'renders')
-            os.makedirs(debug_dir, exist_ok=True)
-            # Save the high-res unwarped raster
-            cv2.imwrite(os.path.join(debug_dir, 'latest_unwarped.png'), img)
-            cv2.imwrite(os.path.join(debug_dir, 'latest.png'), warped)
-        except Exception as e:
-            print(f"Failed to save debug render images: {e}")
-
-        ok, enc = cv2.imencode('.png', warped)
-        if not ok:
-            print('PNG encode failed')
-            return
-        b64 = base64.b64encode(enc.tobytes()).decode('ascii')
-        emit('projector_frame', {'image': b64}, room='projector')
-        try:
-            emit('set_projection_mode', { 'mode': 'frames' }, room='projector')
-        except Exception:
-            pass
-    except Exception as e:
-        print(f"Error rendering SVG: {e}")
+        # Start rendering and process the newest pending payload after each render
+        is_rendering = True
+        current = data
+        while current is not None:
+            try:
+                _perform_render_svg(current)
+            except Exception as e:
+                print(f"Error rendering SVG: {e}")
+            # Grab the latest pending render (if any), then clear it
+            current = pending_render
+            pending_render = None
+    finally:
+        is_rendering = False
 
 
 if __name__ == '__main__':
