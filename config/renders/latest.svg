@@ -8,16 +8,16 @@
     <line x1="117" y1="-800" x2="117" y2="1000" stroke-dasharray="8,4" stroke-width="0.6" stroke="#ff0000"/>
     <g class="el-0">
       <g>
-        <line x1="-684.9772478481605" y1="-260.70835279293374" x2="884.9772478481605" y2="310.70835279293374" stroke-dasharray="5,5" stroke-width="0.6" stroke="#00ffff"/>
-        <line x1="-684.9772478481605" y1="-260.70835279293374" x2="884.9772478481605" y2="310.70835279293374" stroke-opacity="0.001" stroke-width="6" stroke="#000000" pointer-events="stroke" style="cursor: grab;"/>
-        <text font-size="6" fill="#ffffff" x="100" y="28.830904006958008" text-anchor="middle">
-          <tspan dy="0" x="100">Line 1</tspan>
+        <line x1="-694.4200579067542" y1="-232.00200818844155" x2="875.5344377895667" y2="339.4146973974259" stroke-dasharray="5,5" stroke-width="0.6" stroke="#00ffff"/>
+        <line x1="-694.4200579067542" y1="-232.00200818844155" x2="875.5344377895667" y2="339.4146973974259" stroke-opacity="0.001" stroke-width="6" stroke="#000000" pointer-events="stroke" style="cursor: grab;"/>
+        <text font-size="6" fill="#ffffff" x="90.55718994140625" y="57.37206697463989" text-anchor="middle">
+          <tspan dy="0" x="90.55718994140625">Line 1</tspan>
         </text>
       </g>
     </g>
     <g class="el-1">
       <g>
-        <text font-size="10" fill="#00ffff" x="3.117319345474243" y="192.02018070220947">
+        <text font-size="10" fill="#00ffff" x="3.117319345474243" y="192.13360500335693">
           <tspan dy="0" x="3.117319345474243">180, 2min</tspan>
         </text>
       </g>
@@ -25,8 +25,8 @@
     <g class="el-2">
       <g>
         <rect width="50" height="30" x="118.99781036376953" y="123.0639877319336" fill="none" stroke-width="0.6" stroke="#00ffff"/>
-        <text font-size="6" text-anchor="middle" fill="#ffffff" x="143.99781036376953" y="140.20198607444763" dominant-baseline="middle">
-          <tspan dy="0" x="143.99781036376953">Rectangle 3</tspan>
+        <text font-size="6" text-anchor="middle" fill="#ffffff" x="143.99780941009521" y="140.14141941070557" dominant-baseline="middle">
+          <tspan dy="0" x="143.99780941009521">Rectangle 3</tspan>
         </text>
       </g>
     </g>
