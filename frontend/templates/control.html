@@ -489,6 +489,40 @@
                     </div>
                 </div>
 
+                <!-- Calibration Preview and Controls (hidden by default) -->
+                <div id="calibrationPreviewControls" style="display: none; margin-top: 1.5rem;">
+                    <h4>Calibration Corner Adjustments</h4>
+                    
+                    <!-- SVG Preview -->
+                    <div id="calibrationPreview" style="position: relative; border: 2px solid #ddd; border-radius: 8px; overflow: hidden; background: #000; margin-bottom: 1rem; min-height: 200px;">
+                        <!-- SVG will be rendered here dynamically -->
+                    </div>
+                    
+                    <!-- Corner Selection and Arrow Controls -->
+                    <div style="margin-bottom: 1rem;">
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: bold;">Select Corner:</label>
+                        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem;">
+                            <button class="btn btn-sm" onclick="selectCalibrationCorner(0)" id="cornerBtn0" style="background: #ff0000; color: white;">TL</button>
+                            <button class="btn btn-sm" onclick="selectCalibrationCorner(1)" id="cornerBtn1" style="background: #00ff00; color: black;">TR</button>
+                            <button class="btn btn-sm" onclick="selectCalibrationCorner(2)" id="cornerBtn2" style="background: #0000ff; color: white;">BR</button>
+                            <button class="btn btn-sm" onclick="selectCalibrationCorner(3)" id="cornerBtn3" style="background: #ffff00; color: black;">BL</button>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-bottom: 1rem;">
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: bold;">Fine Adjust (1 pixel steps):</label>
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.25rem; max-width: 300px;">
+                            <div></div>
+                            <button class="btn" style="padding: 0.5rem; aspect-ratio: 2;" onclick="nudgeCalibrationCorner(0, -1)" title="Up (1 px)">⬆️</button>
+                            <div></div>
+                            <button class="btn" style="padding: 0.5rem; aspect-ratio: 2;" onclick="nudgeCalibrationCorner(-1, 0)" title="Left (1 px)">⬅️</button>
+                            <button class="btn" style="padding: 0.5rem; aspect-ratio: 2;" onclick="nudgeCalibrationCorner(0, 1)" title="Down (1 px)">⬇️</button>
+                            <button class="btn" style="padding: 0.5rem; aspect-ratio: 2;" onclick="nudgeCalibrationCorner(1, 0)" title="Right (1 px)">➡️</button>
+                        </div>
+                        <div style="color: #666; font-size: 0.85rem; margin-top: 0.5rem;">Keyboard: arrows to move 1px (when corner selected)</div>
+                    </div>
+                </div>
+
                 <button class="btn" id="validateBtn" onclick="validateCalibration()">Show configured Area</button>
             </div>
             
@@ -718,6 +752,8 @@
             socket.on('calibration_point_dragged', function(data) {
                 console.log('Calibration point dragged:', data);
                 updateCalibrationPoint(calibrationPoints[data.index].id, data.x, data.y);
+                // Update the preview
+                renderCalibrationPreview();
             });
 
             // Store socket globally
@@ -812,6 +848,7 @@
 
         // Calibration functions
         let calibrationMode = false;
+        let selectedCalibrationCorner = null; // Index of selected corner (0-3) or null
         let calibrationPoints = [
             { id: 'tl', x: 0, y: 0, label: 'Top Left' },
             { id: 'tr', x: 0, y: 0, label: 'Top Right' },
@@ -1014,8 +1051,15 @@
             }
             
             calibrationMode = true;
+            selectedCalibrationCorner = null; // Reset selection
             document.getElementById('startCalibrationBtn').textContent = '🛑 Stop Calibration';
             document.getElementById('startCalibrationBtn').style.background = '#e74c3c';
+            
+            // Show calibration preview controls
+            const previewControls = document.getElementById('calibrationPreviewControls');
+            if (previewControls) {
+                previewControls.style.display = 'block';
+            }
             
             // Calculate initial rectangle (25% of screen, centered)
             const screenWidth = 1920; // Default projector resolution
@@ -1031,6 +1075,9 @@
             calibrationPoints[2] = { id: 'br', x: centerX + rectWidth/2, y: centerY + rectHeight/2, label: 'Bottom Right' };
             calibrationPoints[3] = { id: 'bl', x: centerX - rectWidth/2, y: centerY + rectHeight/2, label: 'Bottom Left' };
             
+            // Render the preview
+            renderCalibrationPreview();
+            
             // Send calibration rectangle to projector
             if (window.socket) {
                 window.socket.emit('start_calibration', {
@@ -1043,8 +1090,18 @@
 
         function stopInteractiveCalibration() {
             calibrationMode = false;
+            selectedCalibrationCorner = null; // Reset selection
             document.getElementById('startCalibrationBtn').textContent = '🎯 Start Interactive Calibration';
             document.getElementById('startCalibrationBtn').style.background = '#3498db';
+            
+            // Hide calibration preview controls
+            const previewControls = document.getElementById('calibrationPreviewControls');
+            if (previewControls) {
+                previewControls.style.display = 'none';
+            }
+            
+            // Update corner selection UI
+            updateCornerSelectionUI();
             
             // Stop calibration on projector
             if (window.socket) {
@@ -1084,6 +1141,207 @@
                 point.y = y;
                 
                 // Send updated points to projector
+                if (window.socket && calibrationMode) {
+                    window.socket.emit('update_calibration_points', {
+                        points: calibrationPoints
+                    });
+                }
+            }
+        }
+
+        // Select a corner to adjust (pass null to deselect)
+        function selectCalibrationCorner(index) {
+            if (index !== null && (index < 0 || index > 3)) return;
+            selectedCalibrationCorner = index;
+            updateCornerSelectionUI();
+        }
+
+        // Update UI to show which corner is selected
+        function updateCornerSelectionUI() {
+            for (let i = 0; i < 4; i++) {
+                const btn = document.getElementById(`cornerBtn${i}`);
+                if (btn) {
+                    if (i === selectedCalibrationCorner) {
+                        btn.style.outline = '3px solid #000';
+                        btn.style.fontWeight = 'bold';
+                    } else {
+                        btn.style.outline = '';
+                        btn.style.fontWeight = 'normal';
+                    }
+                }
+            }
+        }
+
+        // Render the calibration preview SVG
+        function renderCalibrationPreview() {
+            const container = document.getElementById('calibrationPreview');
+            if (!container || !calibrationPoints || calibrationPoints.length !== 4) {
+                return;
+            }
+
+            // Use projector aspect ratio
+            const width = projectorTarget.width || 1920;
+            const height = projectorTarget.height || 1080;
+            const aspectRatio = width / height;
+            
+            // Set container size (max width 600px, maintain aspect ratio)
+            const maxWidth = 600;
+            const svgWidth = maxWidth;
+            const svgHeight = maxWidth / aspectRatio;
+            container.style.width = svgWidth + 'px';
+            container.style.height = svgHeight + 'px';
+
+            // Scale points from projector resolution to SVG size
+            const scaleX = svgWidth / width;
+            const scaleY = svgHeight / height;
+
+            // Build points string for polygon
+            const pointsStr = calibrationPoints.map(p => {
+                const x = (p.x * scaleX).toFixed(1);
+                const y = (p.y * scaleY).toFixed(1);
+                return `${x},${y}`;
+            }).join(' ');
+
+            // Build corner handles
+            const colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00'];
+            const labels = ['TL', 'TR', 'BR', 'BL'];
+            const handles = calibrationPoints.map((point, index) => {
+                const x = (point.x * scaleX).toFixed(1);
+                const y = (point.y * scaleY).toFixed(1);
+                const selected = index === selectedCalibrationCorner ? 'stroke-width="4" stroke="white"' : 'stroke-width="2" stroke="white"';
+                return `
+                    <g class="calibration-handle" data-index="${index}">
+                        <circle cx="${x}" cy="${y}" r="15" fill="${colors[index]}" ${selected} style="cursor: grab;" />
+                        <text x="${x}" y="${parseFloat(y) + 5}" fill="white" text-anchor="middle" font-size="10" font-weight="bold">${labels[index]}</text>
+                    </g>
+                `;
+            }).join('');
+
+            const svgContent = `
+                <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <style>
+                            .calibration-handle circle:hover { r: 18; }
+                            .calibration-handle circle:active { cursor: grabbing; }
+                            .calibration-rect { stroke: #ffff00; stroke-width: 2; fill: rgba(255,255,0,0.1); }
+                        </style>
+                    </defs>
+                    <polygon points="${pointsStr}" class="calibration-rect"/>
+                    ${handles}
+                </svg>
+            `;
+
+            container.innerHTML = svgContent;
+
+            // Add drag listeners
+            addCalibrationPreviewDragListeners();
+        }
+
+        // Add drag listeners to calibration preview handles
+        function addCalibrationPreviewDragListeners() {
+            const handles = document.querySelectorAll('#calibrationPreview .calibration-handle');
+            let draggedCorner = null;
+            let startX, startY;
+
+            handles.forEach(handle => {
+                const circle = handle.querySelector('circle');
+                if (!circle) return;
+
+                circle.addEventListener('mousedown', (e) => {
+                    draggedCorner = parseInt(handle.getAttribute('data-index'));
+                    startX = e.clientX;
+                    startY = e.clientY;
+                    
+                    // Select this corner
+                    selectCalibrationCorner(draggedCorner);
+                    
+                    e.preventDefault();
+                });
+
+                circle.addEventListener('touchstart', (e) => {
+                    draggedCorner = parseInt(handle.getAttribute('data-index'));
+                    startX = e.touches[0].clientX;
+                    startY = e.touches[0].clientY;
+                    
+                    // Select this corner
+                    selectCalibrationCorner(draggedCorner);
+                    
+                    e.preventDefault();
+                });
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (draggedCorner !== null) {
+                    const dx = e.clientX - startX;
+                    const dy = e.clientY - startY;
+                    updateCalibrationPointDrag(draggedCorner, dx, dy);
+                    startX = e.clientX;
+                    startY = e.clientY;
+                    e.preventDefault();
+                }
+            });
+
+            document.addEventListener('touchmove', (e) => {
+                if (draggedCorner !== null) {
+                    const dx = e.touches[0].clientX - startX;
+                    const dy = e.touches[0].clientY - startY;
+                    updateCalibrationPointDrag(draggedCorner, dx, dy);
+                    startX = e.touches[0].clientX;
+                    startY = e.touches[0].clientY;
+                    e.preventDefault();
+                }
+            });
+
+            document.addEventListener('mouseup', () => { draggedCorner = null; });
+            document.addEventListener('touchend', () => { draggedCorner = null; });
+        }
+
+        // Update calibration point during drag
+        function updateCalibrationPointDrag(index, dxPx, dyPx) {
+            if (index < 0 || index > 3) return;
+            
+            // Convert drag distance from SVG pixels back to projector pixels
+            const width = projectorTarget.width || 1920;
+            const height = projectorTarget.height || 1080;
+            const maxWidth = 600;
+            const scale = width / maxWidth;
+            
+            const dx = dxPx * scale;
+            const dy = dyPx * scale;
+            
+            const point = calibrationPoints[index];
+            if (point) {
+                point.x = Math.max(0, Math.min(width, point.x + dx));
+                point.y = Math.max(0, Math.min(height, point.y + dy));
+                
+                renderCalibrationPreview();
+                
+                // Send update to projector
+                if (window.socket && calibrationMode) {
+                    window.socket.emit('update_calibration_points', {
+                        points: calibrationPoints
+                    });
+                }
+            }
+        }
+
+        // Nudge calibration corner using arrow buttons
+        function nudgeCalibrationCorner(dx_px, dy_px) {
+            if (selectedCalibrationCorner === null) {
+                return; // Silently ignore if no corner selected
+            }
+            
+            const width = projectorTarget.width || 1920;
+            const height = projectorTarget.height || 1080;
+            
+            const point = calibrationPoints[selectedCalibrationCorner];
+            if (point) {
+                point.x = Math.max(0, Math.min(width, point.x + dx_px));
+                point.y = Math.max(0, Math.min(height, point.y + dy_px));
+                
+                renderCalibrationPreview();
+                
+                // Send update to projector
                 if (window.socket && calibrationMode) {
                     window.socket.emit('update_calibration_points', {
                         points: calibrationPoints
@@ -2062,14 +2320,43 @@ function validateCalibration() {
                     const w = el.width || 20;
                     const r = el.rotation || 0;
                     const color = el.color || '#00ffff';
+                    const url = el.image_url || '';
                     const ig = g.group();
-                    // Draw image with 50% opacity
-                    const img = ig.image(el.image_url || '').size(w, w).move(x, y).opacity(0.5);
-                    if (r) img.rotate(r, x + w / 2, y + w / 2);
-                    // Draw colored border rectangle
-                    const border = ig.rect(w, w).move(x, y).fill('none').stroke({ color: color, width: 0.6 });
-                    if (r) border.rotate(r, x + w / 2, y + w / 2);
-                    if (el.label) ig.text(el.label).font({ size: 6 }).fill('#fff').move(x + w / 2, y + w / 2).attr('text-anchor', 'middle');
+                    // Create image and border, update height after natural size is known
+                    let h = w;
+                    const img = ig.image(url).size(w, h).move(x, y).opacity(0.5);
+                    const border = ig.rect(w, h).move(x, y).fill('none').stroke({ color: color, width: 0.6 });
+                    const label = el.label ? ig.text(el.label).font({ size: 6 }).fill('#fff').attr('text-anchor', 'middle') : null;
+                    function applySize(newH) {
+                        h = newH > 0 ? newH : w;
+                        img.size(w, h);
+                        border.size(w, h);
+                        if (label) label.move(x + w / 2, y + h / 2);
+                        if (r) {
+                            const cx = x + w / 2, cy = y + h / 2;
+                            img.rotate(r, cx, cy);
+                            border.rotate(r, cx, cy);
+                        }
+                    }
+                    if (label) label.move(x + w / 2, y + h / 2);
+                    if (r) {
+                        const cx0 = x + w / 2, cy0 = y + h / 2;
+                        img.rotate(r, cx0, cy0);
+                        border.rotate(r, cx0, cy0);
+                    }
+                    // Load to compute aspect ratio; handle absolute/relative URLs
+                    try {
+                        const pre = new Image();
+                        pre.onload = () => {
+                            if (pre.naturalWidth && pre.naturalHeight) {
+                                const ratio = pre.naturalHeight / pre.naturalWidth;
+                                applySize(w * ratio);
+                            }
+                        };
+                        pre.src = url;
+                    } catch (e) {
+                        // ignore aspect errors; keep square fallback
+                    }
                     if (typeof ig.draggable === 'function') {
                         ig.draggable();
                         ig.on('dragstart', () => setSelectedElement(idx));
@@ -2243,13 +2530,23 @@ function validateCalibration() {
                 const editorOpen = document.getElementById('elementEditor')?.style.display === 'flex';
                 if (isInput || editorOpen) return;
 
-                if (e.key === 'Escape') { e.preventDefault(); setSelectedElement(-1); }
-                else if (e.key === 'ArrowUp') { e.preventDefault(); nudgeSelected(0, -1); }
-                else if (e.key === 'ArrowDown') { e.preventDefault(); nudgeSelected(0, 1); }
-                else if (e.key === 'ArrowLeft' && !e.shiftKey) { e.preventDefault(); nudgeSelected(-1, 0); }
-                else if (e.key === 'ArrowRight' && !e.shiftKey) { e.preventDefault(); nudgeSelected(1, 0); }
-                else if (e.shiftKey && e.key === 'ArrowLeft') { e.preventDefault(); rotateSelected(-Math.PI/180); }
-                else if (e.shiftKey && e.key === 'ArrowRight') { e.preventDefault(); rotateSelected(Math.PI/180); }
+                // Handle calibration mode first
+                if (calibrationMode && selectedCalibrationCorner !== null) {
+                    if (e.key === 'ArrowUp') { e.preventDefault(); nudgeCalibrationCorner(0, -1); }
+                    else if (e.key === 'ArrowDown') { e.preventDefault(); nudgeCalibrationCorner(0, 1); }
+                    else if (e.key === 'ArrowLeft' && !e.shiftKey) { e.preventDefault(); nudgeCalibrationCorner(-1, 0); }
+                    else if (e.key === 'ArrowRight' && !e.shiftKey) { e.preventDefault(); nudgeCalibrationCorner(1, 0); }
+                    else if (e.key === 'Escape') { e.preventDefault(); selectCalibrationCorner(null); }
+                } else {
+                    // Normal element editing mode
+                    if (e.key === 'Escape') { e.preventDefault(); setSelectedElement(-1); }
+                    else if (e.key === 'ArrowUp') { e.preventDefault(); nudgeSelected(0, -1); }
+                    else if (e.key === 'ArrowDown') { e.preventDefault(); nudgeSelected(0, 1); }
+                    else if (e.key === 'ArrowLeft' && !e.shiftKey) { e.preventDefault(); nudgeSelected(-1, 0); }
+                    else if (e.key === 'ArrowRight' && !e.shiftKey) { e.preventDefault(); nudgeSelected(1, 0); }
+                    else if (e.shiftKey && e.key === 'ArrowLeft') { e.preventDefault(); rotateSelected(-Math.PI/180); }
+                    else if (e.shiftKey && e.key === 'ArrowRight') { e.preventDefault(); rotateSelected(Math.PI/180); }
+                }
             });
         }
 

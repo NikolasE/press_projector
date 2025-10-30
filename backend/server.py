@@ -13,6 +13,7 @@ import numpy as np
 import cv2
 import cairosvg
 from threading import Timer
+import re
 
 from database import FileBasedDB
 from calibration import Calibrator
@@ -123,11 +124,22 @@ def _svg_element(el: Dict[str, Any]) -> str:
         rot = el.get('rotation', 0)
         url = el.get('image_url', '')
         x_px, y_px = calibrator.press_to_projector(x_mm, y_mm)
+        # Determine image aspect ratio if possible
+        h_mm = w_mm
+        try:
+            aspect = get_image_aspect_ratio_from_url(url)
+            if aspect and aspect > 0:
+                h_mm = float(w_mm) * float(aspect)
+        except Exception as e:
+            print(f"Failed to compute image aspect ratio for {url}: {e}")
+            h_mm = w_mm
+        # Convert metric sizes to pixels using calibration
         w_px = abs(calibrator.press_to_projector(w_mm, 0)[0] - calibrator.press_to_projector(0,0)[0])
+        h_px = abs(calibrator.press_to_projector(0, h_mm)[1] - calibrator.press_to_projector(0,0)[1])
         if rot:
-            cx = x_px + w_px/2; cy = y_px + w_px/2
-            return f'<g transform="rotate({rot} {cx} {cy})"><image x="{x_px}" y="{y_px}" width="{w_px}" height="{w_px}" xlink:href="{url}"/></g>'
-        return f'<image x="{x_px}" y="{y_px}" width="{w_px}" height="{w_px}" xlink:href="{url}"/>'
+            cx = x_px + w_px/2; cy = y_px + h_px/2
+            return f'<g transform="rotate({rot} {cx} {cy})"><image x="{x_px}" y="{y_px}" width="{w_px}" height="{h_px}" xlink:href="{url}"/></g>'
+        return f'<image x="{x_px}" y="{y_px}" width="{w_px}" height="{h_px}" xlink:href="{url}"/>'
     if t == 'line':
         (x1_mm,y1_mm) = (el.get('start') or [0,0]); (x2_mm,y2_mm) = (el.get('end') or [0,0])
         x1_px,y1_px = calibrator.press_to_projector(x1_mm,y1_mm)
@@ -192,6 +204,110 @@ periodic_update_timer = None
 
 # Use fixed 2x supersampling when rasterizing SVG prior to warping
 
+def encode_filename_to_data_url(filename: str):
+    """Encode an uploaded image filename to a base64 data URL if it exists."""
+    filepath = os.path.join(file_manager.upload_dir, filename)
+    if os.path.exists(filepath):
+        try:
+            with open(filepath, 'rb') as f:
+                img_data = f.read()
+            ext = filename.rsplit('.', 1)[-1].lower()
+            mime_types = {
+                'png': 'image/png',
+                'jpg': 'image/jpeg',
+                'jpeg': 'image/jpeg',
+                'svg': 'image/svg+xml'
+            }
+            mime_type = mime_types.get(ext, 'image/png')
+            b64_data = base64.b64encode(img_data).decode('ascii')
+            return f'data:{mime_type};base64,{b64_data}'
+        except Exception as e:
+            print(f"Error encoding image {filename}: {e}")
+            return None
+    return None
+
+def inline_upload_image_links(svg_str: str) -> str:
+    """Replace href/xlink:href that point to /uploads with data URLs."""
+    def repl_xlink_rel(match):
+        filename = match.group(1)
+        data_url = encode_filename_to_data_url(filename)
+        return f'xlink:href="{data_url}"' if data_url else match.group(0)
+
+    def repl_xlink_abs(match):
+        filename = match.group(1)
+        data_url = encode_filename_to_data_url(filename)
+        return f'xlink:href="{data_url}"' if data_url else match.group(0)
+
+    def repl_href_rel(match):
+        filename = match.group(1)
+        data_url = encode_filename_to_data_url(filename)
+        return f'href="{data_url}"' if data_url else match.group(0)
+
+    def repl_href_abs(match):
+        filename = match.group(1)
+        data_url = encode_filename_to_data_url(filename)
+        return f'href="{data_url}"' if data_url else match.group(0)
+
+    out = svg_str
+    out = re.sub(r'xlink:href="/uploads/([^"]+)"', repl_xlink_rel, out)
+    out = re.sub(r'xlink:href="https?://[^\"]+/uploads/([^"]+)"', repl_xlink_abs, out)
+    out = re.sub(r'href="/uploads/([^"]+)"', repl_href_rel, out)
+    out = re.sub(r'href="https?://[^\"]+/uploads/([^"]+)"', repl_href_abs, out)
+    return out
+
+def extract_upload_filename(url: str):
+    """Extract filename from a URL that points to uploads, handling absolute/relative forms."""
+    if not isinstance(url, str) or not url:
+        return None
+    if 'data:' in url:
+        return None
+    marker = '/uploads/'
+    if marker in url:
+        return url.split(marker, 1)[1]
+    # handle 'uploads/...' without leading slash
+    if 'uploads/' in url:
+        return url.split('uploads/', 1)[1]
+    return None
+
+def get_image_aspect_ratio_from_url(url: str):
+    """Return height/width aspect ratio for an uploaded image URL, or None if unavailable."""
+    fname = extract_upload_filename(url)
+    if not fname:
+        return None
+    try:
+        path = os.path.join(file_manager.upload_dir, fname)
+        if os.path.exists(path):
+            img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+            if img is not None and img.shape[1] > 0:
+                return float(img.shape[0]) / float(img.shape[1])
+    except Exception as e:
+        print(f"Failed to read image for aspect ratio {url}: {e}")
+    return None
+
+def save_control_svg(svg_content: str, filename: str = 'control_latest.svg'):
+    """Persist the latest control-screen SVG to disk, pretty-printed."""
+    try:
+        import xml.dom.minidom
+        dom = xml.dom.minidom.parseString(svg_content.encode('utf-8'))
+        pretty_svg = dom.toprettyxml(indent="  ", encoding=None)
+
+        # Primary location
+        debug_dir = os.path.join('debug', 'renders')
+        os.makedirs(debug_dir, exist_ok=True)
+        with open(os.path.join(debug_dir, filename), 'w', encoding='utf-8') as f:
+            f.write(pretty_svg)
+
+        # Legacy location for compatibility with existing tooling/views
+        legacy_dir = os.path.join('config', 'renders')
+        try:
+            os.makedirs(legacy_dir, exist_ok=True)
+            with open(os.path.join(legacy_dir, filename), 'w', encoding='utf-8') as f2:
+                f2.write(pretty_svg)
+        except Exception:
+            pass
+    except Exception as e:
+        print(f"Failed to save control SVG: {e}")
+
 def broadcast_layout_update():
     """Broadcast current layout to all projectors."""
     global periodic_update_timer
@@ -199,6 +315,12 @@ def broadcast_layout_update():
         if connected_clients['projector']:
             layout_data = projector.get_layout_data()
             svg_content = projector.generate_svg()
+            svg_content = projector.generate_svg()
+            # save control SVG
+            try:
+                save_control_svg(svg_content)
+            except Exception:
+                pass
             socketio.emit('layout_updated', {
                 'layout': layout_data,
                 'svg': svg_content
@@ -412,6 +534,10 @@ def update_layout():
         
         # Generate and send updated SVG
         svg_content = projector.generate_svg()
+        try:
+            save_control_svg(svg_content)
+        except Exception:
+            pass
         socketio.emit('layout_updated', {
             'layout': projector.get_layout_data(),
             'svg': svg_content
@@ -605,6 +731,10 @@ def handle_join_room(data):
             
             layout_data = projector.get_layout_data()
             svg_content = projector.generate_svg()
+            try:
+                save_control_svg(svg_content)
+            except Exception:
+                pass
             emit('layout_updated', {
                 'layout': layout_data,
                 'svg': svg_content
@@ -643,6 +773,10 @@ def handle_request_update():
     # Send current layout to projector room
     layout_data = projector.get_layout_data()
     svg_content = projector.generate_svg()
+    try:
+        save_control_svg(svg_content)
+    except Exception:
+        pass
     emit('layout_updated', {
         'layout': layout_data,
         'svg': svg_content
@@ -672,6 +806,10 @@ def handle_layout_update(data):
         
         # Generate and send updated SVG
         svg_content = projector.generate_svg()
+        try:
+            save_control_svg(svg_content)
+        except Exception:
+            pass
         emit('layout_updated', {
             'layout': projector.get_layout_data(),
             'svg': svg_content
@@ -850,72 +988,13 @@ def handle_render_svg(data):
             return
         target_w = int(data.get('target_width', projector_resolution['width']))
         target_h = int(data.get('target_height', projector_resolution['height']))
-
-        # Convert image URLs under /uploads/ to base64 data URIs for rasterization
-        import re
-        def encode_filename_to_data_url(filename):
-            filepath = os.path.join(file_manager.upload_dir, filename)
-            if os.path.exists(filepath):
-                try:
-                    # Read image file
-                    with open(filepath, 'rb') as f:
-                        img_data = f.read()
-                    
-                    # Determine MIME type from extension
-                    ext = filename.rsplit('.', 1)[-1].lower()
-                    mime_types = {
-                        'png': 'image/png',
-                        'jpg': 'image/jpeg',
-                        'jpeg': 'image/jpeg',
-                        'svg': 'image/svg+xml'
-                    }
-                    mime_type = mime_types.get(ext, 'image/png')
-                    
-                    # Encode as base64
-                    b64_data = base64.b64encode(img_data).decode('ascii')
-                    data_url = f'data:{mime_type};base64,{b64_data}'
-                    
-                    return data_url
-                except Exception as e:
-                    print(f"Error encoding image {filename}: {e}")
-                    return None
-            else:
-                return None
-        
-        def replace_xlink_relative(match):
-            filename = match.group(1)
-            data_url = encode_filename_to_data_url(filename)
-            return f'xlink:href="{data_url}"' if data_url else match.group(0)
-        
-        def replace_xlink_absolute(match):
-            filename = match.group(1)
-            data_url = encode_filename_to_data_url(filename)
-            return f'xlink:href="{data_url}"' if data_url else match.group(0)
-        
-        def replace_href_relative(match):
-            filename = match.group(1)
-            data_url = encode_filename_to_data_url(filename)
-            return f'href="{data_url}"' if data_url else match.group(0)
-        
-        def replace_href_absolute(match):
-            filename = match.group(1)
-            data_url = encode_filename_to_data_url(filename)
-            return f'href="{data_url}"' if data_url else match.group(0)
-        
-        svg_processed = svg_str
-        # xlink:href with relative /uploads/
-        svg_processed = re.sub(r'xlink:href="/uploads/([^"]+)"', replace_xlink_relative, svg_processed)
-        # xlink:href with absolute http(s)://.../uploads/
-        svg_processed = re.sub(r'xlink:href="https?://[^\"]+/uploads/([^"]+)"', replace_xlink_absolute, svg_processed)
-        # href with relative /uploads/
-        svg_processed = re.sub(r'href="/uploads/([^"]+)"', replace_href_relative, svg_processed)
-        # href with absolute http(s)://.../uploads/
-        svg_processed = re.sub(r'href="https?://[^\"]+/uploads/([^"]+)"', replace_href_absolute, svg_processed)
+        # Inline uploaded image links via a helper
+        svg_processed = inline_upload_image_links(svg_str)
         
         # Save SVG to disk before rasterizing (with pretty printing)
         try:
             import xml.dom.minidom
-            debug_dir = os.path.join('config', 'renders')
+            debug_dir = os.path.join('debug', 'renders')
             os.makedirs(debug_dir, exist_ok=True)
             svg_filepath = os.path.join(debug_dir, 'latest.svg')
             
@@ -939,7 +1018,7 @@ def handle_render_svg(data):
 
         # Save the unwarped press-space image for debugging
         try:
-            debug_dir = os.path.join('config', 'renders')
+            debug_dir = os.path.join('debug', 'renders')
             os.makedirs(debug_dir, exist_ok=True)
             cv2.imwrite(os.path.join(debug_dir, 'latest_unwarped.png'), img)
         except Exception as e:
@@ -957,7 +1036,7 @@ def handle_render_svg(data):
 
         # Write debug images to disk (only keep the latest)
         try:
-            debug_dir = os.path.join('config', 'renders')
+            debug_dir = os.path.join('debug', 'renders')
             os.makedirs(debug_dir, exist_ok=True)
             # Save the high-res unwarped raster
             cv2.imwrite(os.path.join(debug_dir, 'latest_unwarped.png'), img)
