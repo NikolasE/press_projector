@@ -172,6 +172,7 @@
             <span id="connectionText">Connecting...</span>
         </div>
         <div id="calibrationInfo" class="calibration-info"></div>
+        <div class="calibration-info" id="modeInfo"></div>
     </div>
 
     <div class="projector-container">
@@ -213,6 +214,13 @@
         let calibrationMode = false;
         let calibrationPoints = [];
         let draggedCorner = null;
+        let hasDragged = false;
+        let dragStartX = 0;
+        let dragStartY = 0;
+        let selectedCalibrationCorner = null; // Track which corner is selected
+        let lastFrameAt = 0;
+        let lastFrameUrl = '';
+        let preferFrames = true;
 
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
@@ -269,13 +277,27 @@
                 console.log('Layout updated:', data);
                 currentLayout = data.layout;
                 currentSVG = data.svg;
-                updateProjection();
+                // Do NOT swap to SVG during normal edits; wait for rasterized frame.
+                // Only show immediately if in calibration mode or frames are not preferred.
+                if (calibrationMode || !preferFrames) {
+                    updateProjection();
+                } else {
+                    // Expect a frame soon; keep last frame without flashing SVG
+                    try { if (expectFrameTimer) clearTimeout(expectFrameTimer); } catch (e) {}
+                    try {
+                        expectFrameTimer = setTimeout(() => {
+                            // If no frame arrived, still keep last frame (no SVG swap)
+                        }, 800);
+                    } catch (e) {}
+                }
                 hideErrorMessage();
             });
 
             socket.on('boundary_pattern_toggled', function(data) {
                 console.log('Boundary pattern toggled:', data);
                 currentSVG = data.svg;
+                preferFrames = false;
+                updateModeInfo();
                 updateProjection();
             });
 
@@ -283,22 +305,46 @@
             socket.on('projector_frame', function(data) {
                 const imgEl = document.getElementById('projectorFrame');
                 imgEl.src = 'data:image/png;base64,' + data.image;
+                lastFrameUrl = imgEl.src;
                 document.getElementById('frameContainer').style.display = 'flex';
                 document.getElementById('svgContainer').style.display = 'none';
                 hideLoadingMessage();
                 hideErrorMessage();
+                lastFrameAt = Date.now();
+                preferFrames = true;
+                updateModeInfo();
+            });
+
+            // Explicit mode control
+            socket.on('set_projection_mode', function(data) {
+                try {
+                    const mode = (data && data.mode) || 'frames';
+                    preferFrames = mode !== 'svg';
+                    if (preferFrames) {
+                        // show last frame if available
+                        const imgEl = document.getElementById('projectorFrame');
+                        if (lastFrameUrl) imgEl.src = lastFrameUrl;
+                        document.getElementById('frameContainer').style.display = 'flex';
+                        document.getElementById('svgContainer').style.display = 'none';
+                    } else {
+                        updateProjection();
+                    }
+                } catch (e) {}
             });
 
             socket.on('start_calibration', function(data) {
                 console.log('Starting calibration:', data);
                 console.log('Received points:', data.points);
                 calibrationMode = true;
+                preferFrames = false;
                 calibrationPoints = data.points || [];
+                selectedCalibrationCorner = null; // Reset selection
                 console.log('Calibration mode set, points count:', calibrationPoints.length);
                 // Hide any previously rendered frame image when entering calibration
                 document.getElementById('frameContainer').style.display = 'none';
                 const imgEl = document.getElementById('projectorFrame');
                 if (imgEl) imgEl.src = '';
+                updateModeInfo();
                 updateCalibrationProjection();
             });
 
@@ -312,6 +358,9 @@
                 console.log('Stopping calibration');
                 calibrationMode = false;
                 calibrationPoints = [];
+                selectedCalibrationCorner = null; // Reset selection
+                preferFrames = true;
+                updateModeInfo();
                 updateProjection();
             });
 
@@ -360,6 +409,14 @@
             } else {
                 info.textContent = '';
             }
+        }
+
+        function updateModeInfo() {
+            try {
+                const el = document.getElementById('modeInfo');
+                const modeText = calibrationMode || !preferFrames ? 'Mode: SVG' : 'Mode: Frames';
+                el.textContent = modeText;
+            } catch (e) {}
         }
 
         function updateProjection() {
@@ -449,13 +506,52 @@
                 const colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00'];
                 const x = typeof point.x === 'number' ? point.x : parseFloat(point.x) || 0;
                 const y = typeof point.y === 'number' ? point.y : parseFloat(point.y) || 0;
+                const selected = index === selectedCalibrationCorner;
+                const strokeStyle = selected ? 'stroke-width="5" stroke="white"' : 'stroke-width="3" stroke="white"';
+                const outerCircle = selected ? `<circle cx="${x}" cy="${y}" r="28" fill="none" stroke="#fff" stroke-width="4" style="pointer-events: none;"/>` : '';
                 return `
+                    ${outerCircle}
                     <circle cx="${x}" cy="${y}" r="20" 
-                            fill="${colors[index]}" stroke="white" stroke-width="3"
+                            fill="${colors[index]}" ${strokeStyle}
                             class="calibration-handle" data-index="${index}"
                             style="cursor: grab;"/>
                 `;
             }).join('');
+            
+            // Build green line for bottom edge (interpolated at 0.1)
+            // BL is index 3 (yellow), BR is index 2 (blue)
+            // TL is index 0 (red), TR is index 1 (green)
+            const topLeft = points[0];   // Red
+            const topRight = points[1];  // Green
+            const bottomRight = points[2]; // Blue
+            const bottomLeft = points[3];  // Yellow
+            
+            // Parse coordinates (handle number/string types)
+            const tlX = typeof topLeft.x === 'number' ? topLeft.x : parseFloat(topLeft.x) || 0;
+            const tlY = typeof topLeft.y === 'number' ? topLeft.y : parseFloat(topLeft.y) || 0;
+            const trX = typeof topRight.x === 'number' ? topRight.x : parseFloat(topRight.x) || 0;
+            const trY = typeof topRight.y === 'number' ? topRight.y : parseFloat(topRight.y) || 0;
+            const brX = typeof bottomRight.x === 'number' ? bottomRight.x : parseFloat(bottomRight.x) || 0;
+            const brY = typeof bottomRight.y === 'number' ? bottomRight.y : parseFloat(bottomRight.y) || 0;
+            const blX = typeof bottomLeft.x === 'number' ? bottomLeft.x : parseFloat(bottomLeft.x) || 0;
+            const blY = typeof bottomLeft.y === 'number' ? bottomLeft.y : parseFloat(bottomLeft.y) || 0;
+            
+            // Interpolate from bottom-left (yellow) towards top-left (red) at 0.1
+            // and from bottom-right (blue) towards top-right (green) at 0.1
+            const t = 0.1;
+            const x1 = blX + (tlX - blX) * t;
+            const y1 = blY + (tlY - blY) * t;
+            const x2 = brX + (trX - brX) * t;
+            const y2 = brY + (trY - brY) * t;
+            
+            // Cut off 20% from each end to avoid touching yellow lines
+            const cutPercent = 0.2;
+            const x1_cut = x1 + (x2 - x1) * cutPercent;
+            const y1_cut = y1 + (y2 - y1) * cutPercent;
+            const x2_cut = x2 - (x2 - x1) * cutPercent;
+            const y2_cut = y2 - (y2 - y1) * cutPercent;
+            
+            const greenLine = `<line x1="${x1_cut}" y1="${y1_cut}" x2="${x2_cut}" y2="${y2_cut}" stroke="#00ff00" stroke-width="4" style="pointer-events: none;"/>`;
             
             const svgContent = `
                 <svg width="100%" height="100%" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" 
@@ -469,6 +565,7 @@
                         </style>
                     </defs>
                     <polygon points="${pointsStr}" class="calibration-rect"/>
+                    ${greenLine}
                     ${handles}
                     <text x="${width/2}" y="50" class="calibration-text">
                         Drag the corners to align with press corners
@@ -489,6 +586,23 @@
             handles.forEach(handle => {
                 handle.addEventListener('mousedown', startDrag);
                 handle.addEventListener('touchstart', startDrag);
+                // Add click listener for selection (only if not dragging)
+                handle.addEventListener('click', (e) => {
+                    if (hasDragged) {
+                        return; // Don't select if we were dragging
+                    }
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const index = parseInt(handle.getAttribute('data-index'));
+                    // Update local selection state
+                    selectedCalibrationCorner = index;
+                    // Re-render to show selection
+                    updateCalibrationProjection();
+                    // Send selection to control interface
+                    if (window.socket) {
+                        window.socket.emit('calibration_point_selected', { index: index });
+                    }
+                });
             });
             
             document.addEventListener('mousemove', drag);
@@ -500,6 +614,17 @@
         function startDrag(event) {
             event.preventDefault();
             draggedCorner = parseInt(event.target.getAttribute('data-index'));
+            hasDragged = false;
+            dragStartX = event.clientX || event.touches[0].clientX;
+            dragStartY = event.clientY || event.touches[0].clientY;
+            // Select this corner
+            selectedCalibrationCorner = draggedCorner;
+            // Re-render to show selection
+            updateCalibrationProjection();
+            // Send selection to control interface
+            if (window.socket) {
+                window.socket.emit('calibration_point_selected', { index: draggedCorner });
+            }
             document.body.style.cursor = 'grabbing';
         }
 
@@ -507,6 +632,22 @@
             if (draggedCorner === null) return;
             
             event.preventDefault();
+            
+            // Check if we actually moved (threshold to avoid accidental drags)
+            let currentX, currentY;
+            if (event.touches) {
+                currentX = event.touches[0].clientX;
+                currentY = event.touches[0].clientY;
+            } else {
+                currentX = event.clientX;
+                currentY = event.clientY;
+            }
+            
+            const dx = currentX - dragStartX;
+            const dy = currentY - dragStartY;
+            if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+                hasDragged = true;
+            }
             
             const svg = document.querySelector('svg');
             if (!svg) return;
@@ -525,17 +666,8 @@
             const scaleX = svgWidth / rect.width;
             const scaleY = svgHeight / rect.height;
             
-            let clientX, clientY;
-            if (event.touches) {
-                clientX = event.touches[0].clientX;
-                clientY = event.touches[0].clientY;
-            } else {
-                clientX = event.clientX;
-                clientY = event.clientY;
-            }
-            
-            const x = (clientX - rect.left) * scaleX;
-            const y = (clientY - rect.top) * scaleY;
+            const x = (currentX - rect.left) * scaleX;
+            const y = (currentY - rect.top) * scaleY;
             
             // Update calibration point
             calibrationPoints[draggedCorner].x = Math.max(0, Math.min(svgWidth, x));
@@ -557,7 +689,34 @@
         function endDrag() {
             if (draggedCorner !== null) {
                 draggedCorner = null;
+                hasDragged = false;
                 document.body.style.cursor = 'default';
+            }
+        }
+
+        // Nudge calibration corner using arrow keys
+        function nudgeCalibrationCorner(dx_px, dy_px) {
+            if (selectedCalibrationCorner === null) {
+                return;
+            }
+            
+            const width = window.innerWidth || 1920;
+            const height = window.innerHeight || 1080;
+            
+            const point = calibrationPoints[selectedCalibrationCorner];
+            if (point) {
+                point.x = Math.max(0, Math.min(width, point.x + dx_px));
+                point.y = Math.max(0, Math.min(height, point.y + dy_px));
+                
+                // Re-render to show the change
+                updateCalibrationProjection();
+                
+                // Send update to control interface
+                if (window.socket) {
+                    window.socket.emit('update_calibration_points', {
+                        points: calibrationPoints
+                    });
+                }
             }
         }
 
@@ -629,6 +788,33 @@
 
         // Keyboard shortcuts
         document.addEventListener('keydown', function(event) {
+            const active = document.activeElement;
+            const isInput = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA');
+            if (isInput) return;
+
+            // Handle calibration mode first
+            if (calibrationMode && selectedCalibrationCorner !== null) {
+                if (event.key === 'ArrowUp') { 
+                    event.preventDefault(); 
+                    nudgeCalibrationCorner(0, -1); 
+                } else if (event.key === 'ArrowDown') { 
+                    event.preventDefault(); 
+                    nudgeCalibrationCorner(0, 1); 
+                } else if (event.key === 'ArrowLeft' && !event.shiftKey) { 
+                    event.preventDefault(); 
+                    nudgeCalibrationCorner(-1, 0); 
+                } else if (event.key === 'ArrowRight' && !event.shiftKey) { 
+                    event.preventDefault(); 
+                    nudgeCalibrationCorner(1, 0); 
+                } else if (event.key === 'Escape') { 
+                    event.preventDefault(); 
+                    selectedCalibrationCorner = null; 
+                    updateCalibrationProjection(); 
+                }
+                return;
+            }
+
+            // Normal shortcuts
             switch(event.key) {
                 case 'F11':
                     event.preventDefault();

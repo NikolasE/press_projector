@@ -346,19 +346,17 @@ def broadcast_layout_update():
     """Broadcast current layout to all projectors."""
     global periodic_update_timer
     try:
-        if connected_clients['projector']:
-            layout_data = projector.get_layout_data()
-            svg_content = projector.generate_svg()
-            svg_content = projector.generate_svg()
-            # save control SVG
-            try:
-                save_control_svg(svg_content)
-            except Exception:
-                pass
-            socketio.emit('layout_updated', {
-                'layout': layout_data,
-                'svg': svg_content
-            }, room='projector')
+        # Only send raw SVG to control for preview; projector should rely on raster frames
+        layout_data = projector.get_layout_data()
+        svg_content = projector.generate_svg()
+        try:
+            save_control_svg(svg_content)
+        except Exception:
+            pass
+        socketio.emit('layout_updated', {
+            'layout': layout_data,
+            'svg': svg_content
+        }, room='control')
     except Exception as e:
         print(f"Error broadcasting layout update: {e}")
     
@@ -572,10 +570,19 @@ def update_layout():
             save_control_svg(svg_content)
         except Exception:
             pass
-        socketio.emit('layout_updated', {
-            'layout': projector.get_layout_data(),
-            'svg': svg_content
-        }, room='projector')
+        # Notify control UI only; projector consumes rasterized frames
+        try:
+            socketio.emit('layout_updated', {
+                'layout': projector.get_layout_data(),
+                'svg': svg_content
+            }, room='control')
+        except Exception:
+            pass
+        # Ensure calibration overlay is not shown during normal edits
+        try:
+            socketio.emit('stop_calibration', room='projector')
+        except Exception:
+            pass
         
         return jsonify({'success': True, 'layout': projector.get_layout_data()})
         
@@ -763,16 +770,7 @@ def handle_join_room(data):
                 calibrator.load_calibration_data(calibration_data)
                 emit('calibration_updated', calibration_data)
             
-            layout_data = projector.get_layout_data()
-            svg_content = projector.generate_svg()
-            try:
-                save_control_svg(svg_content)
-            except Exception:
-                pass
-            emit('layout_updated', {
-                'layout': layout_data,
-                'svg': svg_content
-            })
+            # Do not send raw SVG to projector on join; wait for rasterized frames
         elif room == 'control':
             # Send current calibration to populate control inputs on load
             calibration_data = db.load_calibration()
@@ -804,17 +802,20 @@ def handle_request_update():
         calibrator.load_calibration_data(calibration_data)
         emit('calibration_updated', calibration_data)
     
-    # Send current layout to projector room
-    layout_data = projector.get_layout_data()
-    svg_content = projector.generate_svg()
+    # Send current layout to control only; projector will wait for rasterized frame
     try:
-        save_control_svg(svg_content)
+        layout_data = projector.get_layout_data()
+        svg_content = projector.generate_svg()
+        try:
+            save_control_svg(svg_content)
+        except Exception:
+            pass
+        emit('layout_updated', {
+            'layout': layout_data,
+            'svg': svg_content
+        }, room='control')
     except Exception:
         pass
-    emit('layout_updated', {
-        'layout': layout_data,
-        'svg': svg_content
-    }, room='projector')
 
 
 @socketio.on('layout_update')
@@ -844,10 +845,19 @@ def handle_layout_update(data):
             save_control_svg(svg_content)
         except Exception:
             pass
-        emit('layout_updated', {
-            'layout': projector.get_layout_data(),
-            'svg': svg_content
-        }, room='projector')
+        # Notify control UI only
+        try:
+            emit('layout_updated', {
+                'layout': projector.get_layout_data(),
+                'svg': svg_content
+            }, room='control')
+        except Exception:
+            pass
+        # Ensure calibration overlay is not shown during normal edits
+        try:
+            emit('stop_calibration', room='projector')
+        except Exception:
+            pass
         
     except Exception as e:
         print(f"Error handling layout update: {e}")
@@ -885,6 +895,10 @@ def handle_show_validation_pattern():
             'visible': True,
             'svg': svg_content
         }, room='projector')
+        try:
+            emit('set_projection_mode', { 'mode': 'svg' }, room='projector')
+        except Exception:
+            pass
 
         # Additionally, display the saved calibration corner points on the projector
         # Reload calibration to avoid stale in-memory state
@@ -931,6 +945,10 @@ def handle_hide_validation_pattern():
             'visible': False,
             'svg': svg_content
         }, room='projector')
+        try:
+            emit('set_projection_mode', { 'mode': 'frames' }, room='projector')
+        except Exception:
+            pass
         
         # Also stop showing the calibration points overlay if active
         try:
@@ -956,8 +974,8 @@ def handle_start_calibration(data):
 def handle_update_calibration_points(data):
     """Handle calibration point updates."""
     try:
-        print(f"Updating calibration points: {data['points']}")
         emit('update_calibration_points', data, room='projector')
+        emit('update_calibration_points', data, room='control')
     except Exception as e:
         print(f"Error updating calibration points: {e}")
 
@@ -970,6 +988,16 @@ def handle_calibration_point_dragged(data):
         emit('calibration_point_dragged', data, room='control')
     except Exception as e:
         print(f"Error handling calibration point drag: {e}")
+
+
+@socketio.on('calibration_point_selected')
+def handle_calibration_point_selected(data):
+    """Handle calibration point selection events."""
+    try:
+        # Forward to control interface
+        emit('calibration_point_selected', data, room='control')
+    except Exception as e:
+        print(f"Error handling calibration point selection: {e}")
 
 
 @socketio.on('stop_calibration')
@@ -1014,7 +1042,6 @@ def handle_set_debug_mode(data):
 
 @socketio.on('render_svg')
 def handle_render_svg(data):
-    print(f"Rendering SVG: {data}")
     """Rasterize incoming SVG and (optionally) warp for projector; then broadcast frame."""
     try:
         svg_str = data.get('svg', '')
@@ -1085,6 +1112,10 @@ def handle_render_svg(data):
             return
         b64 = base64.b64encode(enc.tobytes()).decode('ascii')
         emit('projector_frame', {'image': b64}, room='projector')
+        try:
+            emit('set_projection_mode', { 'mode': 'frames' }, room='projector')
+        except Exception:
+            pass
     except Exception as e:
         print(f"Error rendering SVG: {e}")
 

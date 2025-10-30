@@ -520,7 +520,7 @@
 
             
 
-            <button class="btn btn-danger" onclick="toggleSetupMode()" style="display:block; margin: 1rem auto 0 auto;">Close Setup</button>
+            <button class="btn btn-danger" id="closeSetupBtn" onclick="toggleSetupMode()" style="display:block; margin: 1rem auto 0 auto;">Close Setup</button>
         </div>
     </div>
 
@@ -638,6 +638,18 @@
         </div>
     </div>
 
+    <!-- Generic Confirmation Modal -->
+    <div id="confirmModal" onclick="if(event.target===this) hideConfirmModal()" style="display:none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center;">
+        <div style="background: white; padding: 1.5rem; border-radius: 8px; width: 420px; max-width: 90vw; box-shadow: 0 10px 30px rgba(0,0,0,0.25);">
+            <h3 style="margin-bottom: 0.75rem; color:#2c3e50;">Please Confirm</h3>
+            <p id="confirmMessage" style="margin-bottom: 1.5rem; color:#555;">Are you sure?</p>
+            <div style="display:flex; gap:0.75rem; justify-content:flex-end;">
+                <button class="btn" style="background:#7f8c8d;" onclick="hideConfirmModal()">Cancel</button>
+                <button class="btn btn-success" id="confirmOkBtn" onclick="confirmFromModal()">Confirm</button>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <!-- SVG.js for frontend SVG composition and interactions -->
     <script src="https://cdn.jsdelivr.net/npm/@svgdotjs/svg.js@3.2/dist/svg.min.js"></script>
@@ -744,6 +756,22 @@
                 updateCalibrationPoint(calibrationPoints[data.index].id, data.x, data.y);
                 // Update the preview
                 renderCalibrationPreview();
+            });
+
+            socket.on('calibration_point_selected', function(data) {
+                console.log('Calibration point selected:', data);
+                // Select the corner in the control preview
+                selectCalibrationCorner(data.index);
+            });
+
+            socket.on('update_calibration_points', function(data) {
+                console.log('Updating calibration points from projector:', data);
+                if (data.points && data.points.length === 4) {
+                    // Update the calibration points array
+                    calibrationPoints = data.points.map(p => ({ id: p.id || '', x: p.x, y: p.y, label: p.label || '' }));
+                    // Re-render the preview
+                    renderCalibrationPreview();
+                }
             });
 
             // Store socket globally
@@ -1045,6 +1073,14 @@
             document.getElementById('startCalibrationBtn').textContent = '🛑 Stop Calibration';
             document.getElementById('startCalibrationBtn').style.background = '#e74c3c';
             
+            // Disable Close Setup button
+            const closeBtn = document.getElementById('closeSetupBtn');
+            if (closeBtn) {
+                closeBtn.disabled = true;
+                closeBtn.style.opacity = '0.5';
+                closeBtn.style.cursor = 'not-allowed';
+            }
+            
             // Show calibration preview controls
             const previewControls = document.getElementById('calibrationPreviewControls');
             if (previewControls) {
@@ -1070,6 +1106,7 @@
             
             // Send calibration rectangle to projector
             if (window.socket) {
+                try { window.socket.emit('set_projection_mode', { mode: 'svg' }); } catch (e) {}
                 window.socket.emit('start_calibration', {
                     points: calibrationPoints,
                     press_width_mm: width,
@@ -1084,6 +1121,14 @@
             document.getElementById('startCalibrationBtn').textContent = '🎯 Start Interactive Calibration';
             document.getElementById('startCalibrationBtn').style.background = '#3498db';
             
+            // Enable Close Setup button
+            const closeBtn = document.getElementById('closeSetupBtn');
+            if (closeBtn) {
+                closeBtn.disabled = false;
+                closeBtn.style.opacity = '1';
+                closeBtn.style.cursor = 'pointer';
+            }
+            
             // Hide calibration preview controls
             const previewControls = document.getElementById('calibrationPreviewControls');
             if (previewControls) {
@@ -1092,6 +1137,7 @@
             
             // Stop calibration on projector
             if (window.socket) {
+                try { window.socket.emit('set_projection_mode', { mode: 'frames' }); } catch (e) {}
                 window.socket.emit('stop_calibration');
             }
         }
@@ -1192,6 +1238,35 @@
                 `;
             }).join('');
 
+            // Build green line for bottom edge (between BL and BR corners, interpolated at 0.1)
+            // BL is index 3 (yellow), BR is index 2 (blue)
+            // TL is index 0 (red), TR is index 1 (green)
+            const topLeft = calibrationPoints[0];   // Red
+            const topRight = calibrationPoints[1];  // Green
+            const bottomRight = calibrationPoints[2]; // Blue
+            const bottomLeft = calibrationPoints[3];  // Yellow
+            
+            // Interpolate from bottom-left (yellow) towards top-left (red) at 0.1
+            // and from bottom-right (blue) towards top-right (green) at 0.1
+            const t = 0.1;
+            const x1 = bottomLeft.x + (topLeft.x - bottomLeft.x) * t;
+            const y1 = bottomLeft.y + (topLeft.y - bottomLeft.y) * t;
+            const x2 = bottomRight.x + (topRight.x - bottomRight.x) * t;
+            const y2 = bottomRight.y + (topRight.y - bottomRight.y) * t;
+            
+            // Cut off 20% from each end to avoid touching yellow lines
+            const cutPercent = 0.2;
+            const x1_cut = x1 + (x2 - x1) * cutPercent;
+            const y1_cut = y1 + (y2 - y1) * cutPercent;
+            const x2_cut = x2 - (x2 - x1) * cutPercent;
+            const y2_cut = y2 - (y2 - y1) * cutPercent;
+            
+            const blX = (x1_cut * scaleX).toFixed(1);
+            const blY = (y1_cut * scaleY).toFixed(1);
+            const brX = (x2_cut * scaleX).toFixed(1);
+            const brY = (y2_cut * scaleY).toFixed(1);
+            const greenLine = `<line x1="${blX}" y1="${blY}" x2="${brX}" y2="${brY}" stroke="#00ff00" stroke-width="4" style="pointer-events: none;"/>`;
+
             const svgContent = `
                 <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
                     <defs>
@@ -1202,6 +1277,7 @@
                         </style>
                     </defs>
                     <polygon points="${pointsStr}" class="calibration-rect"/>
+                    ${greenLine}
                     ${handles}
                 </svg>
             `;
@@ -1214,9 +1290,12 @@
 
         // Add drag listeners to calibration preview handles
         function addCalibrationPreviewDragListeners() {
+            const container = document.getElementById('calibrationPreview');
+            const svg = container.querySelector('svg');
             const handles = document.querySelectorAll('#calibrationPreview .calibration-handle');
             let draggedCorner = null;
             let startX, startY;
+            let hasDragged = false;
 
             handles.forEach(handle => {
                 const circle = handle.querySelector('circle');
@@ -1226,29 +1305,77 @@
                     draggedCorner = parseInt(handle.getAttribute('data-index'));
                     startX = e.clientX;
                     startY = e.clientY;
+                    hasDragged = false;
                     
                     // Select this corner
                     selectCalibrationCorner(draggedCorner);
                     
                     e.preventDefault();
+                    e.stopPropagation(); // Prevent triggering SVG click
                 });
 
                 circle.addEventListener('touchstart', (e) => {
                     draggedCorner = parseInt(handle.getAttribute('data-index'));
                     startX = e.touches[0].clientX;
                     startY = e.touches[0].clientY;
+                    hasDragged = false;
                     
                     // Select this corner
                     selectCalibrationCorner(draggedCorner);
                     
                     e.preventDefault();
+                    e.stopPropagation(); // Prevent triggering SVG click
                 });
             });
+
+            // Add click listener to SVG to select closest corner
+            if (svg) {
+                svg.addEventListener('click', (e) => {
+                    // Only select if not dragging
+                    if (hasDragged) {
+                        return;
+                    }
+
+                    const rect = svg.getBoundingClientRect();
+                    const clickX = e.clientX - rect.left;
+                    const clickY = e.clientY - rect.top;
+                    
+                    // Get SVG dimensions
+                    const svgWidth = svg.viewBox.baseVal.width;
+                    const svgHeight = svg.viewBox.baseVal.height;
+                    const scaleX = svgWidth / rect.width;
+                    const scaleY = svgHeight / rect.height;
+                    
+                    // Convert click position to SVG coordinates
+                    const svgX = clickX * scaleX;
+                    const svgY = clickY * scaleY;
+                    
+                    // Find closest corner
+                    let closestIndex = 0;
+                    let minDistance = Infinity;
+                    
+                    calibrationPoints.forEach((point, index) => {
+                        const px = point.x * (svgWidth / (projectorTarget.width || 1920));
+                        const py = point.y * (svgHeight / (projectorTarget.height || 1080));
+                        const distance = Math.sqrt((svgX - px) ** 2 + (svgY - py) ** 2);
+                        if (distance < minDistance) {
+                            minDistance = distance;
+                            closestIndex = index;
+                        }
+                    });
+                    
+                    selectCalibrationCorner(closestIndex);
+                });
+            }
 
             document.addEventListener('mousemove', (e) => {
                 if (draggedCorner !== null) {
                     const dx = e.clientX - startX;
                     const dy = e.clientY - startY;
+                    // Check if we actually moved (threshold to avoid accidental drags)
+                    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+                        hasDragged = true;
+                    }
                     updateCalibrationPointDrag(draggedCorner, dx, dy);
                     startX = e.clientX;
                     startY = e.clientY;
@@ -1260,6 +1387,10 @@
                 if (draggedCorner !== null) {
                     const dx = e.touches[0].clientX - startX;
                     const dy = e.touches[0].clientY - startY;
+                    // Check if we actually moved (threshold to avoid accidental drags)
+                    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+                        hasDragged = true;
+                    }
                     updateCalibrationPointDrag(draggedCorner, dx, dy);
                     startX = e.touches[0].clientX;
                     startY = e.touches[0].clientY;
@@ -1267,8 +1398,14 @@
                 }
             });
 
-            document.addEventListener('mouseup', () => { draggedCorner = null; });
-            document.addEventListener('touchend', () => { draggedCorner = null; });
+            document.addEventListener('mouseup', () => {
+                draggedCorner = null;
+                hasDragged = false;
+            });
+            document.addEventListener('touchend', () => {
+                draggedCorner = null;
+                hasDragged = false;
+            });
         }
 
         // Update calibration point during drag
@@ -1326,6 +1463,10 @@
         }
 
         function saveCalibration() {
+            return showConfirmModal('Save calibration?', performSaveCalibration, 'Save');
+        }
+
+        function performSaveCalibration() {
             const width = parseFloat(document.getElementById('pressWidth').value);
             const height = parseFloat(document.getElementById('pressHeight').value);
             
@@ -1393,12 +1534,14 @@ function validateCalibration() {
     if (!window.socket) return;
     if (validationVisible) {
         window.socket.emit('hide_validation_pattern');
+        try { window.socket.emit('set_projection_mode', { mode: 'frames' }); } catch (e) {}
         // Immediately re-render and send current scene so it shows again without further edits
         try { setTimeout(() => renderControlPreview(), 50); } catch (e) {}
         validationVisible = false;
         if (btn) btn.textContent = 'Show configured Area';
     } else {
         window.socket.emit('show_validation_pattern');
+        try { window.socket.emit('set_projection_mode', { mode: 'svg' }); } catch (e) {}
         validationVisible = true;
         if (btn) btn.textContent = 'Hide';
     }
@@ -1747,14 +1890,11 @@ function validateCalibration() {
             // click outside to close
             editor.onclick = (e) => { if (e.target === editor) closeElementEditor(); };
 
-            // keyboard: Enter => save, Escape => cancel
+            // keyboard: Escape => cancel (do not bind 's' or 'Enter' to save to avoid interfering with typing)
             eeKeyHandler = (e) => {
                 if (e.key === 'Escape') {
                     e.preventDefault();
                     closeElementEditor();
-                } else if (e.key === 'Enter') {
-                    e.preventDefault();
-                    saveElementEditor();
                 }
             };
             document.addEventListener('keydown', eeKeyHandler);
@@ -1877,6 +2017,33 @@ function validateCalibration() {
             pendingDeleteIndex = null;
         }
 
+        // Generic confirmation modal helpers
+        let pendingConfirmAction = null;
+        function showConfirmModal(message, onConfirm, confirmLabel = 'Confirm') {
+            const modal = document.getElementById('confirmModal');
+            const msgEl = document.getElementById('confirmMessage');
+            const okBtn = document.getElementById('confirmOkBtn');
+            if (!modal || !msgEl || !okBtn) return;
+            msgEl.textContent = message;
+            okBtn.textContent = confirmLabel;
+            pendingConfirmAction = typeof onConfirm === 'function' ? onConfirm : null;
+            modal.style.display = 'flex';
+            try { okBtn.focus(); } catch (e) {}
+        }
+        function hideConfirmModal() {
+            const modal = document.getElementById('confirmModal');
+            if (modal) modal.style.display = 'none';
+            pendingConfirmAction = null;
+        }
+        function confirmFromModal() {
+            if (pendingConfirmAction) {
+                const fn = pendingConfirmAction;
+                pendingConfirmAction = null;
+                try { fn(); } catch (e) {}
+            }
+            hideConfirmModal();
+        }
+
         function confirmDeleteElement() {
             if (pendingDeleteIndex === null) return;
             
@@ -1958,6 +2125,10 @@ function validateCalibration() {
 
         // Configuration management
         function saveConfiguration() {
+            return showConfirmModal('Save scene configuration?', performSaveConfiguration, 'Save');
+        }
+
+        function performSaveConfiguration() {
             const name = document.getElementById('configName').value;
             if (!name) {
                 showAlert('Please enter a configuration name', 'error');
@@ -2140,6 +2311,7 @@ function validateCalibration() {
             ph.addEventListener('input', onPressSizeChange);
         }
 
+        let suppressImmediateRender = false;
         function renderControlPreview() {
             if (!previewDraw) return;
             const pressW = parseFloat(document.getElementById('pressWidth').value) || 300;
@@ -2149,6 +2321,8 @@ function validateCalibration() {
 
             // Root group with viewBox in mm coordinates
             const root = previewDraw.nested().viewbox(0, 0, pressW, pressH).attr({ preserveAspectRatio: 'xMidYMid meet' });
+            // Remember the last root node used for rasterization sends
+            try { window.__lastRootNode = root.node; } catch (e) {}
 
             // Optional: draw press boundary
             root.rect(pressW, pressH).fill('none').stroke({ color: '#444', width: 0.5 });
@@ -2298,7 +2472,12 @@ function validateCalibration() {
                     const url = el.image_url || '';
                     const ig = g.group();
                     // Create image and border, update height after natural size is known
-                    let h = w;
+                    window.__imgAspectCache = window.__imgAspectCache || {};
+                    let h = el.height || w;
+                    const cachedRatio = window.__imgAspectCache[url];
+                    if (typeof cachedRatio === 'number' && cachedRatio > 0) {
+                        h = w * cachedRatio;
+                    }
                     const img = ig.image(url).size(w, h).move(x, y).opacity(0.5);
                     const border = ig.rect(w, h).move(x, y).fill('none').stroke({ color: color, width: 0.6 });
                     const label = el.label ? ig.text(el.label).font({ size: 6 }).fill('#fff').attr('text-anchor', 'middle') : null;
@@ -2306,6 +2485,7 @@ function validateCalibration() {
                         h = newH > 0 ? newH : w;
                         img.size(w, h);
                         border.size(w, h);
+                        el.height = h; // persist in model to avoid flicker on re-render
                         if (label) label.move(x + w / 2, y + h / 2);
                         if (r) {
                             const cx = x + w / 2, cy = y + h / 2;
@@ -2325,6 +2505,7 @@ function validateCalibration() {
                         pre.onload = () => {
                             if (pre.naturalWidth && pre.naturalHeight) {
                                 const ratio = pre.naturalHeight / pre.naturalWidth;
+                                window.__imgAspectCache[url] = ratio;
                                 applySize(w * ratio);
                                 // After correcting size, re-send SVG for rasterization
                                 try { scheduleRenderSend(root.node); } catch (e) {}
@@ -2347,7 +2528,9 @@ function validateCalibration() {
             });
 
             // Debounced send to backend for rasterize+warp
-            scheduleRenderSend(root.node);
+            if (!suppressImmediateRender) {
+                scheduleRenderSend(root.node);
+            }
         }
 
         function makeDraggable(node, onDrop, moveTarget) {
@@ -2402,6 +2585,7 @@ function validateCalibration() {
             node.on('touchend', onUp);
         }
 
+        let renderSendTimer = null;
         function scheduleRenderSend(rootSvgNode) {
             if (!window.socket) return;
             if (renderTimer) cancelAnimationFrame(renderTimer);
@@ -2416,7 +2600,16 @@ function validateCalibration() {
                     target_width: projectorTarget.width,
                     target_height: projectorTarget.height
                 });
+                try { window.socket.emit('set_projection_mode', { mode: 'frames' }); } catch (e) {}
             });
+        }
+
+        function scheduleRenderSendDebounced(rootSvgNode, delayMs = 80) {
+            if (!window.socket) return;
+            if (renderSendTimer) clearTimeout(renderSendTimer);
+            renderSendTimer = setTimeout(() => {
+                scheduleRenderSend(rootSvgNode);
+            }, delayMs);
         }
 
         function savePressSize() {
@@ -2452,6 +2645,14 @@ function validateCalibration() {
             nc.style.display = (selectedElementIndex >= 0 && elements[selectedElementIndex]) ? 'block' : 'none';
         }
 
+        let layoutUpdateTimer = null;
+        function scheduleLayoutUpdateDebounced(delayMs = 60) {
+            if (layoutUpdateTimer) clearTimeout(layoutUpdateTimer);
+            layoutUpdateTimer = setTimeout(() => {
+                sendLayoutUpdate();
+            }, delayMs);
+        }
+
         function nudgeSelected(dx_mm, dy_mm) {
             if (selectedElementIndex < 0) return;
             const el = elements[selectedElementIndex];
@@ -2465,8 +2666,11 @@ function validateCalibration() {
                 const [x,y] = el.position || [0,0];
                 el.position = [x + dx_mm, y + dy_mm];
             }
-            sendLayoutUpdate();
+            suppressImmediateRender = true;
             renderControlPreview();
+            suppressImmediateRender = false;
+            scheduleLayoutUpdateDebounced();
+            try { scheduleRenderSendDebounced(window.__lastRootNode || previewDraw.node, 80); } catch (e) {}
             updateElementList();
         }
 
@@ -2495,8 +2699,11 @@ function validateCalibration() {
                 el.start = [mx + rx1, my + ry1];
                 el.end   = [mx + rx2, my + ry2];
             }
-            sendLayoutUpdate();
+            suppressImmediateRender = true;
             renderControlPreview();
+            suppressImmediateRender = false;
+            scheduleLayoutUpdateDebounced();
+            try { scheduleRenderSendDebounced(window.__lastRootNode || previewDraw.node, 80); } catch (e) {}
             updateElementList();
         }
 
@@ -2504,8 +2711,14 @@ function validateCalibration() {
             document.addEventListener('keydown', (e) => {
                 const active = document.activeElement;
                 const isInput = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA');
-                const editorOpen = document.getElementById('elementEditor')?.style.display === 'flex';
-                if (isInput || editorOpen) return;
+                const anyModalOpen = (
+                    document.getElementById('elementEditor')?.style.display === 'flex' ||
+                    document.getElementById('imageSelectionModal')?.style.display === 'flex' ||
+                    document.getElementById('stopCalibrationModal')?.style.display === 'flex' ||
+                    document.getElementById('deleteElementModal')?.style.display === 'flex' ||
+                    document.getElementById('confirmModal')?.style.display === 'flex'
+                );
+                if (isInput || anyModalOpen) return;
 
                 // Handle calibration mode first
                 if (calibrationMode && selectedCalibrationCorner !== null) {
@@ -2517,12 +2730,19 @@ function validateCalibration() {
                 } else {
                     // Normal element editing mode
                     if (e.key === 'Escape') { e.preventDefault(); setSelectedElement(-1); }
+                    else if (e.key === 's' || e.key === 'S') { e.preventDefault(); saveConfiguration(); }
                     else if (e.key === 'ArrowUp') { e.preventDefault(); nudgeSelected(0, -1); }
                     else if (e.key === 'ArrowDown') { e.preventDefault(); nudgeSelected(0, 1); }
                     else if (e.key === 'ArrowLeft' && !e.shiftKey) { e.preventDefault(); nudgeSelected(-1, 0); }
                     else if (e.key === 'ArrowRight' && !e.shiftKey) { e.preventDefault(); nudgeSelected(1, 0); }
                     else if (e.shiftKey && e.key === 'ArrowLeft') { e.preventDefault(); rotateSelected(-Math.PI/180); }
                     else if (e.shiftKey && e.key === 'ArrowRight') { e.preventDefault(); rotateSelected(Math.PI/180); }
+                    else if (e.key === 'Delete') {
+                        if (selectedElementIndex >= 0) {
+                            e.preventDefault();
+                            removeElement(selectedElementIndex);
+                        }
+                    }
                 }
             });
         }
