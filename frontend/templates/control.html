@@ -377,6 +377,9 @@
                 </div>
 
                 <h4>Elements</h4>
+                <div style="display:flex; gap:0.5rem; margin: 0.25rem 0 0.75rem 0;">
+                    <button class="btn" style="background:#e74c3c;" onclick="startNewScene()">🆕 New</button>
+                </div>
                 <div class="element-list" id="elementList">
                     <!-- Elements will be added here dynamically -->
                 </div>
@@ -1616,6 +1619,40 @@ function validateCalibration() {
                 currentLayout.elements = elements;
                 window.socket.emit('layout_update', currentLayout);
             }
+        }
+
+        function startNewScene() {
+            // Step 1: Confirm starting a new scene
+            return showConfirmModal('Start a new scene?', () => {
+                // Step 2: If there are elements, offer to save first
+                if (Array.isArray(elements) && elements.length > 0) {
+                    showConfirmModal('Save current scene before clearing?', () => {
+                        const nameInput = document.getElementById('configName');
+                        const name = nameInput ? nameInput.value : '';
+                        if (!name) {
+                            showAlert('Enter a scene name in the input to save first.', 'error');
+                            try { nameInput && nameInput.focus(); } catch (e) {}
+                            // Do not proceed; user can click New again after naming
+                            return;
+                        }
+                        // Save, then proceed to clear immediately after triggering save
+                        try { performSaveConfiguration(); } catch (e) {}
+                        performStartNewScene();
+                    }, 'Save');
+                } else {
+                    // No elements; just clear
+                    performStartNewScene();
+                }
+            }, 'New');
+        }
+
+        function performStartNewScene() {
+            elements = [];
+            selectedElementIndex = -1;
+            updateElementList();
+            sendLayoutUpdate();
+            renderControlPreview();
+            showAlert('New scene started. Orientation and center lines preserved.', 'success');
         }
 
         // Drawing tools
