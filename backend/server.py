@@ -16,8 +16,8 @@ from threading import Timer
 
 from database import FileBasedDB
 from calibration import Calibrator
-from projector import ProjectorManager
 from file_manager import FileManager
+import types
 
 
 # Initialize Flask app
@@ -33,7 +33,143 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 # Initialize components
 db = FileBasedDB()
 calibrator = Calibrator()
-projector = ProjectorManager(calibrator)
+# Inline projector state and functions (no new classes)
+_layout_state = {
+    'object_orientation': 0.0,
+    'center_lines': { 'horizontal': None, 'vertical': None },
+    'elements': []
+}
+_show_boundary_pattern = False
+
+def pj_set_object_orientation(angle_degrees: float):
+    _layout_state['object_orientation'] = float(angle_degrees or 0)
+
+def pj_set_center_lines(horizontal_y=None, vertical_x=None):
+    if horizontal_y is not None:
+        _layout_state['center_lines']['horizontal'] = horizontal_y
+    if vertical_x is not None:
+        _layout_state['center_lines']['vertical'] = vertical_x
+
+def pj_clear_layout():
+    _layout_state['elements'] = []
+    _layout_state['center_lines'] = { 'horizontal': None, 'vertical': None }
+    _layout_state['object_orientation'] = 0.0
+
+def pj_add_element(element_type: str, element_data: Dict[str, Any]):
+    ed = dict(element_data)
+    ed['type'] = element_type
+    _layout_state['elements'].append(ed)
+
+def pj_get_layout_data() -> Dict[str, Any]:
+    return json.loads(json.dumps(_layout_state))
+
+def pj_set_boundary_pattern_visibility(visible: bool):
+    global _show_boundary_pattern
+    _show_boundary_pattern = bool(visible)
+
+def _svg_center_lines(width: int, height: int) -> str:
+    lines = []
+    try:
+        y_mm = _layout_state['center_lines']['horizontal']
+        if y_mm is not None:
+            y_px = calibrator.press_to_projector(0, y_mm)[1]
+            lines.append(f'<line x1="0" y1="{y_px}" x2="{width}" y2="{y_px}" class="center-line"/>')
+    except Exception as e:
+        print(f"center line H err: {e}")
+    try:
+        x_mm = _layout_state['center_lines']['vertical']
+        if x_mm is not None:
+            x_px = calibrator.press_to_projector(x_mm, 0)[0]
+            lines.append(f'<line x1="{x_px}" y1="0" x2="{x_px}" y2="{height}" class="center-line"/>')
+    except Exception as e:
+        print(f"center line V err: {e}")
+    return '\n'.join(lines)
+
+def _svg_element(el: Dict[str, Any]) -> str:
+    t = el.get('type')
+    if t == 'rectangle':
+        x_mm, y_mm = (el.get('position') or [0,0])
+        w_mm = el.get('width', 10)
+        h_mm = el.get('height', 10)
+        rot = el.get('rotation', 0)
+        color = el.get('color', '#00ffff')
+        x_px, y_px = calibrator.press_to_projector(x_mm, y_mm)
+        w_px, h_px = calibrator.press_to_projector(w_mm, h_mm)
+        w_px = abs(w_px - calibrator.press_to_projector(0,0)[0])
+        h_px = abs(h_px - calibrator.press_to_projector(0,0)[1])
+        if rot:
+            cx = x_px + w_px/2; cy = y_px + h_px/2
+            return f'<g transform="rotate({rot} {cx} {cy})"><rect x="{x_px}" y="{y_px}" width="{w_px}" height="{h_px}" class="element-shape" stroke="{color}" fill="none"/></g>'
+        return f'<rect x="{x_px}" y="{y_px}" width="{w_px}" height="{h_px}" class="element-shape" stroke="{color}" fill="none"/>'
+    if t == 'circle':
+        x_mm, y_mm = (el.get('position') or [0,0])
+        r_mm = el.get('radius', 5)
+        x_px, y_px = calibrator.press_to_projector(x_mm, y_mm)
+        r_px = abs(calibrator.press_to_projector(r_mm, 0)[0] - calibrator.press_to_projector(0,0)[0])
+        return f'<circle cx="{x_px}" cy="{y_px}" r="{r_px}" class="element-shape" fill="none"/>'
+    if t == 'text':
+        x_mm, y_mm = (el.get('position') or [0,0])
+        fs = el.get('font_size', 16)
+        color = el.get('color', '#ffffff')
+        rot = el.get('rotation', 0)
+        txt = (el.get('text') or '').replace('&','&amp;')
+        x_px, y_px = calibrator.press_to_projector(x_mm, y_mm)
+        if rot:
+            return f'<g transform="rotate({rot} {x_px} {y_px})"><text x="{x_px}" y="{y_px}" fill="{color}" font-size="{fs}" font-family="Arial, sans-serif">{txt}</text></g>'
+        return f'<text x="{x_px}" y="{y_px}" fill="{color}" font-size="{fs}" font-family="Arial, sans-serif">{txt}</text>'
+    if t == 'image':
+        x_mm, y_mm = (el.get('position') or [0,0])
+        w_mm = el.get('width', 20)
+        rot = el.get('rotation', 0)
+        url = el.get('image_url', '')
+        x_px, y_px = calibrator.press_to_projector(x_mm, y_mm)
+        w_px = abs(calibrator.press_to_projector(w_mm, 0)[0] - calibrator.press_to_projector(0,0)[0])
+        if rot:
+            cx = x_px + w_px/2; cy = y_px + w_px/2
+            return f'<g transform="rotate({rot} {cx} {cy})"><image x="{x_px}" y="{y_px}" width="{w_px}" height="{w_px}" xlink:href="{url}"/></g>'
+        return f'<image x="{x_px}" y="{y_px}" width="{w_px}" height="{w_px}" xlink:href="{url}"/>'
+    if t == 'line':
+        (x1_mm,y1_mm) = (el.get('start') or [0,0]); (x2_mm,y2_mm) = (el.get('end') or [0,0])
+        x1_px,y1_px = calibrator.press_to_projector(x1_mm,y1_mm)
+        x2_px,y2_px = calibrator.press_to_projector(x2_mm,y2_mm)
+        return f'<line x1="{x1_px}" y1="{y1_px}" x2="{x2_px}" y2="{y2_px}" class="element-shape"/>'
+    return ''
+
+def pj_generate_svg(width: int = 1920, height: int = 1080) -> str:
+    if not calibrator.is_calibrated():
+        return f'<svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="#222"/><text x="50%" y="50%" fill="#fff" text-anchor="middle">Calibration required</text></svg>'
+    parts = []
+    rot = _layout_state['object_orientation']
+    if rot:
+        cx, cy = width//2, height//2
+        parts.append(f'<g transform="rotate({rot} {cx} {cy})">')
+    if _show_boundary_pattern:
+        parts.append(f'<rect x="10" y="10" width="{width-20}" height="{height-20}" class="boundary"/>')
+    parts.append(_svg_center_lines(width, height))
+    for el in _layout_state['elements']:
+        svg_el = _svg_element(el)
+        if svg_el:
+            parts.append(svg_el)
+    if rot:
+        parts.append('</g>')
+    styles = (
+        '.center-line{stroke:#f00;stroke-width:3;stroke-dasharray:10,5}'
+        '.boundary{stroke:#ff0;stroke-width:4;fill:rgba(255,255,0,0.2)}'
+        '.element-shape{stroke:#0ff;stroke-width:2;fill:none}'
+    )
+    body = '\n'.join([p for p in parts if p])
+    return f'<?xml version="1.0" encoding="UTF-8"?>\n<svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><defs><style>{styles}</style></defs>{body}</svg>'
+
+# Create a simple namespace to keep existing call sites
+projector = types.SimpleNamespace(
+    set_object_orientation=pj_set_object_orientation,
+    set_center_lines=pj_set_center_lines,
+    clear_layout=pj_clear_layout,
+    add_element=pj_add_element,
+    get_layout_data=pj_get_layout_data,
+    set_boundary_pattern_visibility=pj_set_boundary_pattern_visibility,
+    generate_svg=pj_generate_svg
+)
 file_manager = FileManager()
 
 # Global state
@@ -545,7 +681,23 @@ def handle_layout_update(data):
         print(f"Error handling layout update: {e}")
 
 
-# Removed unused websocket handler 'toggle_boundary_pattern'
+# @socketio.on('toggle_boundary_pattern')
+# def handle_toggle_boundary_pattern():
+#     """Handle boundary pattern toggle."""
+#     try:
+#         # Toggle boundary pattern visibility
+#         current_visibility = projector.show_boundary_pattern
+#         projector.set_boundary_pattern_visibility(not current_visibility)
+        
+#         # Generate and send updated SVG
+#         svg_content = projector.generate_svg()
+#         emit('boundary_pattern_toggled', {
+#             'visible': not current_visibility,
+#             'svg': svg_content
+#         }, room='projector')
+        
+#     except Exception as e:
+#         print(f"Error toggling boundary pattern: {e}")
 
 
 @socketio.on('show_validation_pattern')
@@ -690,6 +842,7 @@ def handle_set_debug_mode(data):
 
 @socketio.on('render_svg')
 def handle_render_svg(data):
+    print(f"Rendering SVG: {data}")
     """Rasterize incoming SVG and (optionally) warp for projector; then broadcast frame."""
     try:
         svg_str = data.get('svg', '')
@@ -698,10 +851,9 @@ def handle_render_svg(data):
         target_w = int(data.get('target_width', projector_resolution['width']))
         target_h = int(data.get('target_height', projector_resolution['height']))
 
-        # Convert relative image URLs to base64 data URIs for rasterization
+        # Convert image URLs under /uploads/ to base64 data URIs for rasterization
         import re
-        def replace_upload_url(match):
-            filename = match.group(1)
+        def encode_filename_to_data_url(filename):
             filepath = os.path.join(file_manager.upload_dir, filename)
             if os.path.exists(filepath):
                 try:
@@ -723,19 +875,42 @@ def handle_render_svg(data):
                     b64_data = base64.b64encode(img_data).decode('ascii')
                     data_url = f'data:{mime_type};base64,{b64_data}'
                     
-                    return f'xlink:href="{data_url}"'
+                    return data_url
                 except Exception as e:
                     print(f"Error encoding image {filename}: {e}")
-                    return match.group(0)  # Keep original if encoding fails
+                    return None
             else:
-                # If file doesn't exist, keep original
-                return match.group(0)
+                return None
         
-        svg_with_abs_urls = re.sub(
-            r'xlink:href="/uploads/([^"]+)"',
-            replace_upload_url,
-            svg_str
-        )
+        def replace_xlink_relative(match):
+            filename = match.group(1)
+            data_url = encode_filename_to_data_url(filename)
+            return f'xlink:href="{data_url}"' if data_url else match.group(0)
+        
+        def replace_xlink_absolute(match):
+            filename = match.group(1)
+            data_url = encode_filename_to_data_url(filename)
+            return f'xlink:href="{data_url}"' if data_url else match.group(0)
+        
+        def replace_href_relative(match):
+            filename = match.group(1)
+            data_url = encode_filename_to_data_url(filename)
+            return f'href="{data_url}"' if data_url else match.group(0)
+        
+        def replace_href_absolute(match):
+            filename = match.group(1)
+            data_url = encode_filename_to_data_url(filename)
+            return f'href="{data_url}"' if data_url else match.group(0)
+        
+        svg_processed = svg_str
+        # xlink:href with relative /uploads/
+        svg_processed = re.sub(r'xlink:href="/uploads/([^"]+)"', replace_xlink_relative, svg_processed)
+        # xlink:href with absolute http(s)://.../uploads/
+        svg_processed = re.sub(r'xlink:href="https?://[^\"]+/uploads/([^"]+)"', replace_xlink_absolute, svg_processed)
+        # href with relative /uploads/
+        svg_processed = re.sub(r'href="/uploads/([^"]+)"', replace_href_relative, svg_processed)
+        # href with absolute http(s)://.../uploads/
+        svg_processed = re.sub(r'href="https?://[^\"]+/uploads/([^"]+)"', replace_href_absolute, svg_processed)
         
         # Save SVG to disk before rasterizing (with pretty printing)
         try:
@@ -745,7 +920,7 @@ def handle_render_svg(data):
             svg_filepath = os.path.join(debug_dir, 'latest.svg')
             
             # Parse and pretty-print the SVG
-            dom = xml.dom.minidom.parseString(svg_with_abs_urls.encode('utf-8'))
+            dom = xml.dom.minidom.parseString(svg_processed.encode('utf-8'))
             pretty_svg = dom.toprettyxml(indent="  ", encoding=None)
             
             with open(svg_filepath, 'w', encoding='utf-8') as f:
@@ -753,7 +928,7 @@ def handle_render_svg(data):
         except Exception as e:
             print(f"Failed to save SVG to disk: {e}")
 
-        png_bytes = cairosvg.svg2png(bytestring=svg_with_abs_urls.encode('utf-8'), output_width=target_w, output_height=target_h)
+        png_bytes = cairosvg.svg2png(bytestring=svg_processed.encode('utf-8'), output_width=target_w, output_height=target_h)
 
         # Decode PNG to image (BGRA)
         buf = np.frombuffer(png_bytes, dtype=np.uint8)

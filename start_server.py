@@ -73,7 +73,9 @@ def main():
         print("Press Ctrl+C to stop the server")
         print("-" * 40)
         
-        socketio.run(app, host=args.host, port=args.port, debug=args.debug)
+        # Disable the Flask reloader under debugger so breakpoints work
+        use_reloader = False #if (getattr(sys, 'gettrace', lambda: None)() is not None) else args.debug
+        socketio.run(app, host=args.host, port=args.port, debug=args.debug, use_reloader=use_reloader)
         
     except KeyboardInterrupt:
         print("\nServer stopped by user.")

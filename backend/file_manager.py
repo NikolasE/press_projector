@@ -16,9 +16,13 @@ class FileManager:
     ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'svg'}
     MAX_FILE_SIZE = 16 * 1024 * 1024  # 16MB
     
-    def __init__(self, upload_dir: str = "uploads"):
+    def __init__(self, upload_dir: str = None):
+        # Resolve uploads directory to an absolute path at project root by default
+        if upload_dir is None:
+            base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+            upload_dir = os.path.join(base_dir, 'uploads')
         self.upload_dir = upload_dir
-        os.makedirs(upload_dir, exist_ok=True)
+        os.makedirs(self.upload_dir, exist_ok=True)
     
     def is_allowed_file(self, filename: str) -> bool:
         """Check if file extension is allowed."""
