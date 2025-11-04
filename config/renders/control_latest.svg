@@ -1,0 +1,25 @@
+<?xml version="1.0" ?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1920" height="1080">
+  <defs>
+    <style>.center-line{stroke:#f00;stroke-width:3;stroke-dasharray:10,5}.boundary{stroke:#ff0;stroke-width:4;fill:rgba(255,255,0,0.2)}.element-shape{stroke:#0ff;stroke-width:2;fill:none}</style>
+  </defs>
+  <line x1="0" y1="173.1698455810547" x2="1920" y2="173.1698455810547" class="center-line"/>
+  
+
+  <line x1="284.96533203125" y1="0" x2="284.96533203125" y2="1080" class="center-line"/>
+  
+
+  <text x="235.85885620117188" y="243.67056274414062" fill="#00ffff" font-size="10" font-family="Arial, sans-serif">180, 2min</text>
+  
+
+  <rect x="293.63885498046875" y="146.52772521972656" width="39.71907043457031" height="26.417678833007812" class="element-shape" stroke="#00ffff" fill="none"/>
+  
+
+  <line x1="245.84422302246094" y1="21.52572250366211" x2="288.35528564453125" y2="66.76595306396484" class="element-shape"/>
+  
+
+  <image x="299.674072265625" y="187.4821319580078" width="71.73809814453125" height="61.44810485839844" xlink:href="http://127.0.0.1:5000/uploads/ubuntu.png"/>
+  
+
+  <image x="350.09686279296875" y="139.8157501220703" width="28.656982421875" height="11.701591491699219" xlink:href="http://127.0.0.1:5000/uploads/ubuntu2.png"/>
+</svg>

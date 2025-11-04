@@ -23,25 +23,12 @@
         "height": 30,
         "label": "FrontTop",
         "position": [
-          116.89389038085938,
-          72.52405548095703
+          117.58129119873047,
+          71.49295043945312
         ],
         "rotation": 0,
         "type": "rectangle",
         "width": 50
-      },
-      {
-        "color": "#00ffff",
-        "height": 11.944444444444445,
-        "image_url": "http://127.0.0.1:5000/uploads/wide.png",
-        "label": "Image 4",
-        "position": [
-          117.05303955078125,
-          101.9756851196289
-        ],
-        "rotation": 0,
-        "type": "image",
-        "width": 120
       },
       {
         "end": [
@@ -57,86 +44,34 @@
       },
       {
         "color": "#00ffff",
-        "height": 75.07836990595611,
+        "height": 69.12028725314184,
         "image_url": "http://127.0.0.1:5000/uploads/ubuntu.png",
         "label": "Image 5",
         "opacity": 0.57,
         "position": [
-          224.82188415527344,
-          80.61351013183594
+          117.58696746826172,
+          119.45179748535156
         ],
         "rotation": 0,
         "type": "image",
         "width": 100
+      },
+      {
+        "type": "image",
+        "position": [
+          116.4804916381836,
+          30.228565216064453
+        ],
+        "width": 40,
+        "rotation": 0,
+        "image_url": "http://127.0.0.1:5000/uploads/ubuntu2.png",
+        "color": "#00ffff",
+        "opacity": 0.5,
+        "label": "Image 6",
+        "height": 13.036020583190396
       }
     ]
   },
-  "elements": [
-    {
-      "color": "#00ffff",
-      "font_size": 10,
-      "label": "Temp",
-      "position": [
-        15.1,
-        184.4
-      ],
-      "rotation": 0,
-      "text": "180, 2min",
-      "type": "text"
-    },
-    {
-      "color": "#00ffff",
-      "height": 30,
-      "label": "FrontTop",
-      "position": [
-        89.11082458496094,
-        61.10635757446289
-      ],
-      "rotation": 0,
-      "type": "rectangle",
-      "width": 50
-    },
-    {
-      "color": "#00ffff",
-      "height": 11.944444444444445,
-      "image_url": "http://127.0.0.1:5000/uploads/wide.png",
-      "label": "Image 4",
-      "position": [
-        92.314697265625,
-        126.33344268798828
-      ],
-      "rotation": 0,
-      "type": "image",
-      "width": 120
-    },
-    {
-      "end": [
-        124.52505493164062,
-        -16.65777587890625
-      ],
-      "label": "Line 4",
-      "start": [
-        74.52505493164062,
-        -66.65777587890625
-      ],
-      "type": "line"
-    },
-    {
-      "color": "#00ffff",
-      "height": 75.07836990595611,
-      "image_url": "http://127.0.0.1:5000/uploads/ubuntu.png",
-      "label": "Image 5",
-      "opacity": 0.57,
-      "position": [
-        155.93511962890625,
-        114.48600769042969
-      ],
-      "rotation": 0,
-      "show_helper_lines": false,
-      "type": "image",
-      "width": 100
-    }
-  ],
   "config_name": "asd",
-  "timestamp": "2025-10-30T12:53:35.283769"
+  "timestamp": "2025-11-04T22:30:14.487056"
 }

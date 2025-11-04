@@ -513,6 +513,9 @@
                             <button class="btn" style="padding: 0.5rem; aspect-ratio: 2;" onclick="nudgeCalibrationCorner(1, 0)" title="Right (1 px)">➡️</button>
                         </div>
                         <div style="color: #666; font-size: 0.85rem; margin-top: 0.5rem;">Keyboard: arrows to move 1px (when corner selected)</div>
+                        <div style="margin-top: 1rem;">
+                            <button class="btn" style="background: #e67e22; padding: 0.5rem 1rem;" onclick="resetCalibrationPoints()" title="Reset corner points to default centered positions">🔄 Reset to Default Positions</button>
+                        </div>
                     </div>
                 </div>
 
@@ -1518,6 +1521,43 @@
             }
         }
 
+        // Reset calibration points to default centered positions
+        function resetCalibrationPoints() {
+            if (!calibrationMode) {
+                showAlert('Please start calibration first', 'error');
+                return;
+            }
+            
+            // Calculate default rectangle (25% of screen, centered)
+            const screenWidth = projectorTarget.width || 1920;
+            const screenHeight = projectorTarget.height || 1080;
+            const rectWidth = screenWidth * 0.25;
+            const rectHeight = screenHeight * 0.25;
+            const centerX = screenWidth / 2;
+            const centerY = screenHeight / 2;
+            
+            // Update calibration points to default positions
+            calibrationPoints[0] = { id: 'tl', x: centerX - rectWidth/2, y: centerY - rectHeight/2, label: 'Top Left' };
+            calibrationPoints[1] = { id: 'tr', x: centerX + rectWidth/2, y: centerY - rectHeight/2, label: 'Top Right' };
+            calibrationPoints[2] = { id: 'br', x: centerX + rectWidth/2, y: centerY + rectHeight/2, label: 'Bottom Right' };
+            calibrationPoints[3] = { id: 'bl', x: centerX - rectWidth/2, y: centerY + rectHeight/2, label: 'Bottom Left' };
+            
+            // Deselect any selected corner
+            selectedCalibrationCorner = null;
+            
+            // Update preview
+            renderCalibrationPreview();
+            
+            // Send updated points to projector
+            if (window.socket && calibrationMode) {
+                window.socket.emit('update_calibration_points', {
+                    points: calibrationPoints
+                });
+            }
+            
+            showAlert('Calibration points reset to default positions', 'success');
+        }
+
         function saveCalibration() {
             return showConfirmModal('Save calibration?', performSaveCalibration, 'Save');
         }
@@ -2314,9 +2354,12 @@ function validateCalibration() {
                 return;
             }
 
+            // Sync elements into currentLayout before saving to avoid duplication
+            const layoutToSave = Object.assign({}, currentLayout);
+            layoutToSave.elements = elements || [];
+
             const configData = {
-                layout: currentLayout,
-                elements: elements
+                layout: layoutToSave
             };
 
             fetch('/api/configurations', {
@@ -2372,16 +2415,17 @@ function validateCalibration() {
 
         function loadConfiguration(name) {
             fetch('/api/configurations/' + name)
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    showAlert('Configuration not found', 'error');
-                    return;
-                }
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        showAlert('Configuration not found', 'error');
+                        return;
+                    }
                 
-                currentLayout = data.layout;
-                elements = data.elements || [];
-                selectedElementIndex = -1;
+                    currentLayout = data.layout || {};
+                    // Extract elements from layout.elements (preferred) or fallback to root elements for backward compatibility
+                    elements = (data.layout && data.layout.elements) || data.elements || [];
+                    selectedElementIndex = -1;
                 
                 updateLayoutForm();
                 updateElementList();
@@ -2602,19 +2646,23 @@ function validateCalibration() {
                     const dx2 = mx + dx;
                     const dy2 = my + dy;
                     const lg = g.group();
+                    lg.css('cursor', 'grab');
                     // Visible extended line
                     lg.line(dx1, dy1, dx2, dy2).stroke({ color: el.color || '#0ff', width: 0.6, dasharray: '5,5' });
                     // Transparent, thicker hit line for easier dragging
                     lg.line(dx1, dy1, dx2, dy2)
                         .stroke({ color: '#000', width: 6, opacity: 0.001 })
-                        .attr('pointer-events', 'stroke')
-                        .css('cursor', 'grab');
+                        .attr('pointer-events', 'stroke');
                     if (el.label) lg.text(el.label).font({ size: 6 }).fill('#fff').move((x1 + x2) / 2, (y1 + y2) / 2 - 2).attr('text-anchor', 'middle');
                     if (typeof lg.draggable === 'function') {
                         lg.draggable();
                         // Ensure selection when dragging starts
-                        lg.on('dragstart', () => setSelectedElement(idx));
+                        lg.on('dragstart', () => {
+                            setSelectedElement(idx);
+                            lg.css('cursor', 'grabbing');
+                        });
                         lg.on('dragend', () => {
+                            lg.css('cursor', 'grab');
                             // Get the current position after drag and convert back to mm
                             const bbox = lg.bbox();
                             const vb = lg.root().viewbox();
@@ -2653,9 +2701,14 @@ function validateCalibration() {
                     }
                     // Enable plugin-based dragging and update model on drag end
                     if (typeof rr.draggable === 'function') {
+                        rr.css('cursor', 'grab');
                         rr.draggable();
-                        rr.on('dragstart', () => setSelectedElement(idx));
+                        rr.on('dragstart', () => {
+                            setSelectedElement(idx);
+                            rr.css('cursor', 'grabbing');
+                        });
                         rr.on('dragend', () => {
+                            rr.css('cursor', 'grab');
                             const bb = rr.bbox();
                             el.position = [bb.x, bb.y];
                             renderControlPreview();
@@ -2668,9 +2721,14 @@ function validateCalibration() {
                     const cc = cg.circle(r * 2).move(x - r, y - r).fill('none').stroke({ color: el.color || '#0ff', width: 0.6 });
                     if (el.label) cg.text(el.label).font({ size: 6 }).fill('#fff').move(x, y + 2).attr('text-anchor', 'middle');
                     if (typeof cg.draggable === 'function') {
+                        cg.css('cursor', 'grab');
                         cg.draggable();
-                        cg.on('dragstart', () => setSelectedElement(idx));
+                        cg.on('dragstart', () => {
+                            setSelectedElement(idx);
+                            cg.css('cursor', 'grabbing');
+                        });
                         cg.on('dragend', () => {
+                            cg.css('cursor', 'grab');
                             // Use visible circle bbox to derive center
                             const bb = cc.bbox();
                             const cx = bb.cx; const cy = bb.cy;
@@ -2686,9 +2744,14 @@ function validateCalibration() {
                     if (rot) tg.rotate(rot, x, y);
                     const tnode = tg.text(el.text || '').font({ size: fs }).fill(el.color || '#0ff').move(x, y);
                     if (typeof tg.draggable === 'function') {
+                        tg.css('cursor', 'grab');
                         tg.draggable();
-                        tg.on('dragstart', () => setSelectedElement(idx));
+                        tg.on('dragstart', () => {
+                            setSelectedElement(idx);
+                            tg.css('cursor', 'grabbing');
+                        });
                         tg.on('dragend', () => {
+                            tg.css('cursor', 'grab');
                             const bb = tg.bbox();
                             el.position = [bb.x, bb.y];
                             renderControlPreview();
@@ -2751,9 +2814,14 @@ function validateCalibration() {
                         // ignore aspect errors; keep square fallback
                     }
                     if (typeof ig.draggable === 'function') {
+                        ig.css('cursor', 'grab');
                         ig.draggable();
-                        ig.on('dragstart', () => setSelectedElement(idx));
+                        ig.on('dragstart', () => {
+                            setSelectedElement(idx);
+                            ig.css('cursor', 'grabbing');
+                        });
                         ig.on('dragend', () => {
+                            ig.css('cursor', 'grab');
                             const bb = ig.bbox();
                             el.position = [bb.x, bb.y];
                             renderControlPreview();
