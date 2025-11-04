@@ -44,7 +44,12 @@ logger = logging.getLogger(__name__)
 
 # Initialize components
 db = FileBasedDB()
-calibrator = Calibrator()
+# Multi-press calibrators
+_press_calibrators = {
+    'press1': Calibrator(),
+    'press2': Calibrator()
+}
+_active_press = 'press1'  # Current active press for calibration/layout operations
 # Inline projector state and functions (no new classes)
 _layout_state = {
     'object_orientation': 0.0,
@@ -52,6 +57,43 @@ _layout_state = {
     'elements': []
 }
 _show_boundary_pattern = False
+
+# Operation mode state - scenes loaded per press
+_operation_state = {
+    'press1': {'scene_name': None, 'layout_data': None},
+    'press2': {'scene_name': None, 'layout_data': None}
+}
+
+# Press management functions
+def get_active_press() -> str:
+    """Get current active press ID."""
+    return _active_press
+
+def set_active_press(press_id: str) -> bool:
+    """Set active press ID."""
+    global _active_press
+    if press_id in _press_calibrators:
+        _active_press = press_id
+        return True
+    return False
+
+def get_calibrator(press_id: str = None) -> Calibrator:
+    """Get calibrator for specific press or active press."""
+    if press_id is None:
+        press_id = _active_press
+    return _press_calibrators.get(press_id, _press_calibrators['press1'])
+
+def load_press_calibration(press_id: str) -> bool:
+    """Load calibration data for a specific press."""
+    try:
+        calibration_data = db.load_press_calibration(press_id)
+        if calibration_data:
+            calibrator = get_calibrator(press_id)
+            return calibrator.load_calibration_data(calibration_data)
+        return False
+    except Exception as e:
+        logger.exception("Error loading calibration for press %s", press_id)
+        return False
 
 def pj_set_object_orientation(angle_degrees: float):
     _layout_state['object_orientation'] = float(angle_degrees or 0)
@@ -78,25 +120,25 @@ def pj_set_boundary_pattern_visibility(visible: bool):
     global _show_boundary_pattern
     _show_boundary_pattern = bool(visible)
 
-def _svg_center_lines(width: int, height: int) -> str:
+def _svg_center_lines(width_mm: float, height_mm: float) -> str:
+    """Generate center lines in press space (mm)."""
     lines = []
     try:
         y_mm = _layout_state['center_lines']['horizontal']
         if y_mm is not None:
-            y_px = calibrator.press_to_projector(0, y_mm)[1]
-            lines.append(f'<line x1="0" y1="{y_px}" x2="{width}" y2="{y_px}" class="center-line"/>')
+            lines.append(f'<line x1="0" y1="{y_mm}" x2="{width_mm}" y2="{y_mm}" class="center-line"/>')
     except Exception as e:
         logger.exception("center line H err")
     try:
         x_mm = _layout_state['center_lines']['vertical']
         if x_mm is not None:
-            x_px = calibrator.press_to_projector(x_mm, 0)[0]
-            lines.append(f'<line x1="{x_px}" y1="0" x2="{x_px}" y2="{height}" class="center-line"/>')
+            lines.append(f'<line x1="{x_mm}" y1="0" x2="{x_mm}" y2="{height_mm}" class="center-line"/>')
     except Exception as e:
         logger.exception("center line V err")
     return '\n'.join(lines)
 
 def _svg_element(el: Dict[str, Any]) -> str:
+    """Generate SVG element in press space (mm coordinates)."""
     t = el.get('type')
     if t == 'rectangle':
         x_mm, y_mm = (el.get('position') or [0,0])
@@ -104,36 +146,28 @@ def _svg_element(el: Dict[str, Any]) -> str:
         h_mm = el.get('height', 10)
         rot = el.get('rotation', 0)
         color = el.get('color', '#00ffff')
-        x_px, y_px = calibrator.press_to_projector(x_mm, y_mm)
-        w_px, h_px = calibrator.press_to_projector(w_mm, h_mm)
-        w_px = abs(w_px - calibrator.press_to_projector(0,0)[0])
-        h_px = abs(h_px - calibrator.press_to_projector(0,0)[1])
         if rot:
-            cx = x_px + w_px/2; cy = y_px + h_px/2
-            return f'<g transform="rotate({rot} {cx} {cy})"><rect x="{x_px}" y="{y_px}" width="{w_px}" height="{h_px}" class="element-shape" stroke="{color}" fill="none"/></g>'
-        return f'<rect x="{x_px}" y="{y_px}" width="{w_px}" height="{h_px}" class="element-shape" stroke="{color}" fill="none"/>'
+            cx = x_mm + w_mm/2; cy = y_mm + h_mm/2
+            return f'<g transform="rotate({rot} {cx} {cy})"><rect x="{x_mm}" y="{y_mm}" width="{w_mm}" height="{h_mm}" class="element-shape" stroke="{color}" fill="none"/></g>'
+        return f'<rect x="{x_mm}" y="{y_mm}" width="{w_mm}" height="{h_mm}" class="element-shape" stroke="{color}" fill="none"/>'
     if t == 'circle':
         x_mm, y_mm = (el.get('position') or [0,0])
         r_mm = el.get('radius', 5)
-        x_px, y_px = calibrator.press_to_projector(x_mm, y_mm)
-        r_px = abs(calibrator.press_to_projector(r_mm, 0)[0] - calibrator.press_to_projector(0,0)[0])
-        return f'<circle cx="{x_px}" cy="{y_px}" r="{r_px}" class="element-shape" fill="none"/>'
+        return f'<circle cx="{x_mm}" cy="{y_mm}" r="{r_mm}" class="element-shape" fill="none"/>'
     if t == 'text':
         x_mm, y_mm = (el.get('position') or [0,0])
         fs = el.get('font_size', 16)
         color = el.get('color', '#ffffff')
         rot = el.get('rotation', 0)
         txt = (el.get('text') or '').replace('&','&amp;')
-        x_px, y_px = calibrator.press_to_projector(x_mm, y_mm)
         if rot:
-            return f'<g transform="rotate({rot} {x_px} {y_px})"><text x="{x_px}" y="{y_px}" fill="{color}" font-size="{fs}" font-family="Arial, sans-serif">{txt}</text></g>'
-        return f'<text x="{x_px}" y="{y_px}" fill="{color}" font-size="{fs}" font-family="Arial, sans-serif">{txt}</text>'
+            return f'<g transform="rotate({rot} {x_mm} {y_mm})"><text x="{x_mm}" y="{y_mm}" fill="{color}" font-size="{fs}" font-family="Arial, sans-serif">{txt}</text></g>'
+        return f'<text x="{x_mm}" y="{y_mm}" fill="{color}" font-size="{fs}" font-family="Arial, sans-serif">{txt}</text>'
     if t == 'image':
         x_mm, y_mm = (el.get('position') or [0,0])
         w_mm = el.get('width', 20)
         rot = el.get('rotation', 0)
         url = el.get('image_url', '')
-        x_px, y_px = calibrator.press_to_projector(x_mm, y_mm)
         # Determine image aspect ratio if possible
         h_mm = w_mm
         try:
@@ -143,31 +177,48 @@ def _svg_element(el: Dict[str, Any]) -> str:
         except Exception as e:
             logger.exception("Failed to compute image aspect ratio for %s", url)
             h_mm = w_mm
-        # Convert metric sizes to pixels using calibration
-        w_px = abs(calibrator.press_to_projector(w_mm, 0)[0] - calibrator.press_to_projector(0,0)[0])
-        h_px = abs(calibrator.press_to_projector(0, h_mm)[1] - calibrator.press_to_projector(0,0)[1])
         if rot:
-            cx = x_px + w_px/2; cy = y_px + h_px/2
-            return f'<g transform="rotate({rot} {cx} {cy})"><image x="{x_px}" y="{y_px}" width="{w_px}" height="{h_px}" xlink:href="{url}"/></g>'
-        return f'<image x="{x_px}" y="{y_px}" width="{w_px}" height="{h_px}" xlink:href="{url}"/>'
+            cx = x_mm + w_mm/2; cy = y_mm + h_mm/2
+            return f'<g transform="rotate({rot} {cx} {cy})"><image x="{x_mm}" y="{y_mm}" width="{w_mm}" height="{h_mm}" xlink:href="{url}"/></g>'
+        return f'<image x="{x_mm}" y="{y_mm}" width="{w_mm}" height="{h_mm}" xlink:href="{url}"/>'
     if t == 'line':
         (x1_mm,y1_mm) = (el.get('start') or [0,0]); (x2_mm,y2_mm) = (el.get('end') or [0,0])
-        x1_px,y1_px = calibrator.press_to_projector(x1_mm,y1_mm)
-        x2_px,y2_px = calibrator.press_to_projector(x2_mm,y2_mm)
-        return f'<line x1="{x1_px}" y1="{y1_px}" x2="{x2_px}" y2="{y2_px}" class="element-shape"/>'
+        return f'<line x1="{x1_mm}" y1="{y1_mm}" x2="{x2_mm}" y2="{y2_mm}" class="element-shape"/>'
     return ''
 
-def pj_generate_svg(width: int = 1920, height: int = 1080) -> str:
+def pj_generate_svg(width: int = 1920, height: int = 1080, press_id: str = None, operation_mode: bool = False) -> str:
+    """Generate SVG for single press or multi-press operation mode.
+    SVG is now in press space (mm coordinates), not projector pixel space."""
+    if operation_mode:
+        # Generate SVG for both presses in operation mode
+        return _generate_multi_press_svg(width, height)
+    
+    # Single press mode
+    # Ensure press_id is set (default to active press)
+    if press_id is None:
+        press_id = _active_press
+    
+    # Ensure calibration is loaded for this press
+    calibrator = get_calibrator(press_id)
     if not calibrator.is_calibrated():
-        return f'<svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="#222"/><text x="50%" y="50%" fill="#fff" text-anchor="middle">Calibration required</text></svg>'
+        # Try to load calibration if not already loaded
+        load_press_calibration(press_id)
+        if not calibrator.is_calibrated():
+            logger.warning(f"Calibration not available for {press_id} when generating SVG")
+            return f'<svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="#222"/><text x="50%" y="50%" fill="#fff" text-anchor="middle">Calibration required</text></svg>'
+    
+    # Get press dimensions in mm
+    press_width_mm = calibrator.press_width_mm
+    press_height_mm = calibrator.press_height_mm
+    
     parts = []
     rot = _layout_state['object_orientation']
     if rot:
-        cx, cy = width//2, height//2
+        cx, cy = press_width_mm/2, press_height_mm/2
         parts.append(f'<g transform="rotate({rot} {cx} {cy})">')
     if _show_boundary_pattern:
-        parts.append(f'<rect x="10" y="10" width="{width-20}" height="{height-20}" class="boundary"/>')
-    parts.append(_svg_center_lines(width, height))
+        parts.append(f'<rect x="0" y="0" width="{press_width_mm}" height="{press_height_mm}" class="boundary"/>')
+    parts.append(_svg_center_lines(press_width_mm, press_height_mm))
     for el in _layout_state['elements']:
         svg_el = _svg_element(el)
         if svg_el:
@@ -180,7 +231,93 @@ def pj_generate_svg(width: int = 1920, height: int = 1080) -> str:
         '.element-shape{stroke:#0ff;stroke-width:2;fill:none}'
     )
     body = '\n'.join([p for p in parts if p])
-    return f'<?xml version="1.0" encoding="UTF-8"?>\n<svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><defs><style>{styles}</style></defs>{body}</svg>'
+    # SVG viewBox and dimensions in mm
+    return f'<?xml version="1.0" encoding="UTF-8"?>\n<svg width="{press_width_mm}mm" height="{press_height_mm}mm" viewBox="0 0 {press_width_mm} {press_height_mm}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><defs><style>{styles}</style></defs>{body}</svg>'
+
+def _generate_multi_press_svg(width: int = 1920, height: int = 1080) -> str:
+    """Generate SVG for both presses in operation mode.
+    For operation mode, we need to render each press separately and combine them.
+    Since we can't easily combine two separate press spaces, we'll use a combined approach.
+    For now, we'll render each press in its own press space and the warping will handle positioning.
+    """
+    parts = []
+    styles = (
+        '.center-line{stroke:#f00;stroke-width:3;stroke-dasharray:10,5}'
+        '.boundary{stroke:#ff0;stroke-width:4;fill:rgba(255,255,0,0.2)}'
+        '.element-shape{stroke:#0ff;stroke-width:2;fill:none}'
+        '.press1-shape{stroke:#00ff00;stroke-width:2;fill:none}'
+        '.press2-shape{stroke:#ff00ff;stroke-width:2;fill:none}'
+    )
+    
+    # Find the maximum press dimensions to create a combined viewBox
+    max_width_mm = 0
+    max_height_mm = 0
+    press_data = []
+    
+    # Generate SVG for each press that has a scene loaded
+    for press_id in ['press1', 'press2']:
+        press_state = _operation_state.get(press_id, {})
+        if not press_state.get('layout_data'):
+            continue
+        
+        # Ensure calibration is loaded for this press
+        calibrator = get_calibrator(press_id)
+        if not calibrator.is_calibrated():
+            # Try to load calibration if not already loaded
+            load_press_calibration(press_id)
+            if not calibrator.is_calibrated():
+                logger.warning(f"Calibration not available for {press_id} in operation mode, skipping")
+                continue
+        
+        press_width_mm = calibrator.press_width_mm
+        press_height_mm = calibrator.press_height_mm
+        max_width_mm = max(max_width_mm, press_width_mm)
+        max_height_mm = max(max_height_mm, press_height_mm)
+        
+        layout_data = press_state['layout_data']
+        object_orientation = layout_data.get('object_orientation', 0.0)
+        center_lines = layout_data.get('center_lines', {})
+        elements = layout_data.get('elements', [])
+        
+        # Create a group for this press with a unique class
+        press_group = []
+        
+        # Add center lines for this press
+        if center_lines.get('horizontal') is not None:
+            y_mm = center_lines['horizontal']
+            press_group.append(f'<line x1="0" y1="{y_mm}" x2="{press_width_mm}" y2="{y_mm}" class="center-line"/>')
+        if center_lines.get('vertical') is not None:
+            x_mm = center_lines['vertical']
+            press_group.append(f'<line x1="{x_mm}" y1="0" x2="{x_mm}" y2="{press_height_mm}" class="center-line"/>')
+        
+        # Add elements for this press
+        for el in elements:
+            svg_el = _svg_element(el)
+            if svg_el:
+                # Add press-specific class
+                svg_el = svg_el.replace('class="element-shape"', f'class="element-shape {press_id}-shape"')
+                press_group.append(svg_el)
+        
+        # Wrap in rotation group if needed
+        if object_orientation and press_group:
+            cx, cy = press_width_mm/2, press_height_mm/2
+            wrapped = f'<g transform="rotate({object_orientation} {cx} {cy})">{chr(10).join(press_group)}</g>'
+            press_data.append((press_id, wrapped))
+        else:
+            press_data.append((press_id, '\n'.join(press_group)))
+    
+    # For operation mode with multiple presses, we need a strategy
+    # Since each press has its own calibration, we'll render them side by side
+    # or use a combined viewBox. For simplicity, let's use max dimensions.
+    if not press_data:
+        body = '<text x="50%" y="50%" fill="#fff" text-anchor="middle">No scenes loaded</text>'
+        max_width_mm = 1000  # Default fallback
+        max_height_mm = 1000
+    else:
+        body = '\n'.join([pd[1] for pd in press_data])
+    
+    # SVG viewBox and dimensions in mm (combined for both presses)
+    return f'<?xml version="1.0" encoding="UTF-8"?>\n<svg width="{max_width_mm}mm" height="{max_height_mm}mm" viewBox="0 0 {max_width_mm} {max_height_mm}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><defs><style>{styles}</style></defs>{body}</svg>'
 
 # Create a simple namespace to keep existing call sites
 projector = types.SimpleNamespace(
@@ -349,14 +486,34 @@ def broadcast_layout_update():
     """Broadcast current layout to all projectors."""
     global periodic_update_timer
     try:
-        # Only send raw SVG to control for preview; projector should rely on raster frames
-        layout_data = projector.get_layout_data()
-        svg_content = projector.generate_svg()
-        try:
-            save_control_svg(svg_content)
-        except Exception:
-            pass
-        send_layout_update_to_control(layout_data, svg_content)
+        # Check if operation mode is active (at least one press has a scene loaded)
+        operation_mode_active = any(
+            _operation_state.get(press_id, {}).get('layout_data')
+            for press_id in ['press1', 'press2']
+        )
+        
+        if operation_mode_active:
+            # Operation mode: generate multi-press SVG
+            svg_content = projector.generate_svg(operation_mode=True)
+            try:
+                save_control_svg(svg_content)
+            except Exception:
+                pass
+            # Send to control for preview
+            socketio.emit('layout_updated', {
+                'layout': None,  # Operation mode doesn't use _layout_state
+                'svg': svg_content,
+                'operation_mode': True
+            }, room='control')
+        else:
+            # Normal mode: send current layout
+            layout_data = projector.get_layout_data()
+            svg_content = projector.generate_svg()
+            try:
+                save_control_svg(svg_content)
+            except Exception:
+                pass
+            send_layout_update_to_control(layout_data, svg_content)
     except Exception as e:
         logger.exception("Error broadcasting layout update")
     
@@ -419,9 +576,14 @@ def favicon():
 
 @app.route('/api/calibration', methods=['POST'])
 def save_calibration():
-    """Save calibration data."""
+    """Save calibration data for active press."""
     try:
         data = request.get_json()
+        
+        # Get press_id from request or use active press
+        press_id = data.get('press_id', _active_press)
+        if press_id not in _press_calibrators:
+            return jsonify({'error': f'Invalid press_id: {press_id}'}), 400
         
         # Validate required fields: 'projector_pixels' and 'target_pixels'
         required_fields = ['press_width_mm', 'press_height_mm', 'projector_pixels', 'target_pixels']
@@ -441,7 +603,8 @@ def save_calibration():
         if not sp:
             return jsonify({'error': 'Missing projector_pixels'}), 400
 
-        # Set calibration in calibrator
+        # Set calibration in press-specific calibrator
+        calibrator = get_calibrator(press_id)
         success = calibrator.set_calibration_from_target(
             sp,
             target_w,
@@ -455,13 +618,19 @@ def save_calibration():
         
         # Save to database
         calibration_data = calibrator.get_calibration_data()
-        db.save_calibration(calibration_data)
+        db.save_press_calibration(press_id, calibration_data)
         
         # Notify views
-        socketio.emit('calibration_updated', calibration_data, room='projector')
-        socketio.emit('calibration_updated', calibration_data, room='control')
+        socketio.emit('press_calibration_updated', {
+            'press_id': press_id,
+            'calibration_data': calibration_data
+        }, room='projector')
+        socketio.emit('press_calibration_updated', {
+            'press_id': press_id,
+            'calibration_data': calibration_data
+        }, room='control')
         
-        return jsonify({'success': True, 'calibration': calibration_data})
+        return jsonify({'success': True, 'calibration': calibration_data, 'press_id': press_id})
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -469,14 +638,20 @@ def save_calibration():
 
 @app.route('/api/calibration', methods=['GET'])
 def get_calibration():
-    """Get current calibration data."""
+    """Get calibration data for active press or specified press."""
     try:
-        calibration_data = db.load_calibration()
+        # Get press_id from query parameter or use active press
+        press_id = request.args.get('press_id', _active_press)
+        if press_id not in _press_calibrators:
+            return jsonify({'error': f'Invalid press_id: {press_id}'}), 400
+        
+        calibration_data = db.load_press_calibration(press_id)
         if calibration_data:
+            calibrator = get_calibrator(press_id)
             calibrator.load_calibration_data(calibration_data)
             return jsonify(calibration_data)
         else:
-            return jsonify({'error': 'No calibration data found'}), 404
+            return jsonify({'error': f'No calibration data found for {press_id}'}), 404
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -487,22 +662,179 @@ Removed legacy endpoint: /api/calibration/validate
 """
 
 
+@app.route('/api/presses', methods=['GET'])
+def list_presses():
+    """List all configured press IDs."""
+    try:
+        presses = db.list_presses()
+        # Ensure press1 and press2 are always available
+        all_presses = ['press1', 'press2']
+        return jsonify({'presses': all_presses, 'configured': presses})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/presses', methods=['POST'])
+def create_press():
+    """Create a new press (press2 only, press1 always exists)."""
+    try:
+        data = request.get_json() or {}
+        press_id = data.get('press_id', 'press2')
+        
+        if press_id not in ['press1', 'press2']:
+            return jsonify({'error': f'Invalid press_id: {press_id}. Only press1 and press2 are supported.'}), 400
+        
+        # Check if press already exists
+        calibration_data = db.load_press_calibration(press_id)
+        if calibration_data:
+            return jsonify({'error': f'Press {press_id} already exists'}), 400
+        
+        # Press is created implicitly when calibration is saved
+        # Just return success
+        socketio.emit('press_created', {'press_id': press_id}, room='control')
+        socketio.emit('press_created', {'press_id': press_id}, room='projector')
+        return jsonify({'success': True, 'press_id': press_id})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/presses/<press_id>', methods=['DELETE'])
+def delete_press_endpoint(press_id: str):
+    """Delete a press and its calibration."""
+    try:
+        if press_id == 'press1':
+            return jsonify({'error': 'Cannot delete press1'}), 400
+        
+        if press_id not in _press_calibrators:
+            return jsonify({'error': f'Invalid press_id: {press_id}'}), 400
+        
+        success = db.delete_press(press_id)
+        if success:
+            # Reset calibrator for this press
+            _press_calibrators[press_id] = Calibrator()
+            socketio.emit('press_deleted', {'press_id': press_id}, room='control')
+            socketio.emit('press_deleted', {'press_id': press_id}, room='projector')
+            return jsonify({'success': True})
+        else:
+            return jsonify({'error': f'Failed to delete press {press_id}'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/presses/<press_id>/calibration', methods=['POST'])
+def save_press_calibration_endpoint(press_id: str):
+    """Save calibration for a specific press."""
+    try:
+        if press_id not in _press_calibrators:
+            return jsonify({'error': f'Invalid press_id: {press_id}'}), 400
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No calibration data provided'}), 400
+        
+        # Validate required fields
+        required_fields = ['press_width_mm', 'press_height_mm', 'projector_pixels', 'target_pixels']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        # Set calibration
+        calibrator = get_calibrator(press_id)
+        tp = data['target_pixels']
+        target_w = int(tp.get('width', 0))
+        target_h = int(tp.get('height', 0))
+        success = calibrator.set_calibration_from_target(
+            data['projector_pixels'],
+            target_w,
+            target_h,
+            data['press_width_mm'],
+            data['press_height_mm']
+        )
+        
+        if not success:
+            return jsonify({'error': 'Calibration failed'}), 400
+        
+        # Save to database
+        calibration_data = calibrator.get_calibration_data()
+        db.save_press_calibration(press_id, calibration_data)
+        
+        # Notify views
+        socketio.emit('press_calibration_updated', {
+            'press_id': press_id,
+            'calibration_data': calibration_data
+        }, room='projector')
+        socketio.emit('press_calibration_updated', {
+            'press_id': press_id,
+            'calibration_data': calibration_data
+        }, room='control')
+        
+        return jsonify({'success': True, 'calibration': calibration_data, 'press_id': press_id})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/presses/<press_id>/calibration', methods=['GET'])
+def get_press_calibration_endpoint(press_id: str):
+    """Get calibration for a specific press."""
+    try:
+        if press_id not in _press_calibrators:
+            return jsonify({'error': f'Invalid press_id: {press_id}'}), 400
+        
+        calibration_data = db.load_press_calibration(press_id)
+        if calibration_data:
+            calibrator = get_calibrator(press_id)
+            calibrator.load_calibration_data(calibration_data)
+            return jsonify(calibration_data)
+        else:
+            return jsonify({'error': f'No calibration data found for {press_id}'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/active-press', methods=['GET', 'POST'])
+def active_press():
+    """Get or set the active press."""
+    try:
+        if request.method == 'GET':
+            return jsonify({'press_id': _active_press})
+        
+        # POST
+        data = request.get_json() or {}
+        press_id = data.get('press_id')
+        if not press_id:
+            return jsonify({'error': 'press_id required'}), 400
+        
+        if set_active_press(press_id):
+            socketio.emit('active_press_changed', {'press_id': press_id}, room='control')
+            socketio.emit('active_press_changed', {'press_id': press_id}, room='projector')
+            return jsonify({'success': True, 'press_id': press_id})
+        else:
+            return jsonify({'error': f'Invalid press_id: {press_id}'}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/press-size', methods=['GET', 'POST'])
 def press_size():
-    """Get or update press dimensions (mm) in calibration config.
+    """Get or update press dimensions (mm) in calibration config for active press.
 
     GET: returns current press_width_mm and press_height_mm if calibration exists.
-    POST: expects { press_width_mm, press_height_mm }; recomputes calibration using existing
+    POST: expects { press_width_mm, press_height_mm, press_id? }; recomputes calibration using existing
           source points and updates destination points to match the new press size, then saves.
     """
     try:
+        press_id = request.args.get('press_id') or (request.get_json() or {}).get('press_id', _active_press)
+        if press_id not in _press_calibrators:
+            return jsonify({'error': f'Invalid press_id: {press_id}'}), 400
+        
         if request.method == 'GET':
-            calibration_data = db.load_calibration()
+            calibration_data = db.load_press_calibration(press_id)
             if not calibration_data:
-                return jsonify({'error': 'No calibration data found'}), 404
+                return jsonify({'error': f'No calibration data found for {press_id}'}), 404
             return jsonify({
                 'press_width_mm': calibration_data.get('press_width_mm'),
-                'press_height_mm': calibration_data.get('press_height_mm')
+                'press_height_mm': calibration_data.get('press_height_mm'),
+                'press_id': press_id
             })
 
         # POST
@@ -512,30 +844,40 @@ def press_size():
         if new_w is None or new_h is None:
             return jsonify({'error': 'press_width_mm and press_height_mm are required'}), 400
 
-        calibration_data = db.load_calibration()
+        calibration_data = db.load_press_calibration(press_id)
         if not calibration_data:
-            return jsonify({'error': 'No calibration data found to update'}), 404
+            return jsonify({'error': f'No calibration data found to update for {press_id}'}), 404
 
         # Keep current source points; regenerate destination points to match new size
-        source_points = calibration_data['source_points']
+        source_points = calibration_data['projector_pixels']
+        tp = calibration_data['target_pixels']
+        target_w = int(tp.get('width', 0))
+        target_h = int(tp.get('height', 0))
         destination_points = [
             [0, 0],
-            [float(new_w), 0],
-            [float(new_w), float(new_h)],
-            [0, float(new_h)]
+            [float(target_w), 0],
+            [float(target_w), float(target_h)],
+            [0, float(target_h)]
         ]
 
         # Recompute calibration via calibrator to update matrix and pixels_per_mm
+        calibrator = get_calibrator(press_id)
         ok = calibrator.set_calibration_points(source_points, destination_points, float(new_w), float(new_h))
         if not ok:
             return jsonify({'error': 'Failed to update calibration with new press size'}), 400
 
         # Persist and broadcast
         updated = calibrator.get_calibration_data()
-        db.save_calibration(updated)
-        socketio.emit('calibration_updated', updated, room='projector')
-        socketio.emit('calibration_updated', updated, room='control')
-        return jsonify({'success': True, 'calibration': updated})
+        db.save_press_calibration(press_id, updated)
+        socketio.emit('press_calibration_updated', {
+            'press_id': press_id,
+            'calibration_data': updated
+        }, room='projector')
+        socketio.emit('press_calibration_updated', {
+            'press_id': press_id,
+            'calibration_data': updated
+        }, room='control')
+        return jsonify({'success': True, 'calibration': updated, 'press_id': press_id})
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -659,9 +1001,83 @@ def get_file_base64(filename):
         return jsonify({'error': str(e)}), 500
 
 
+def convert_absolute_to_relative(layout_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert absolute positions to design-center-relative coordinates."""
+    center_lines = layout_data.get('center_lines', {})
+    center_x = center_lines.get('vertical')
+    center_y = center_lines.get('horizontal')
+    
+    if center_x is None or center_y is None:
+        # No center lines defined, keep absolute positions
+        return layout_data
+    
+    # Create new layout with relative coordinates
+    relative_layout = {
+        'object_orientation': layout_data.get('object_orientation', 0.0),
+        'center_lines': {
+            'horizontal': center_y,  # Store absolute position
+            'vertical': center_x     # Store absolute position
+        },
+        'elements': []
+    }
+    
+    # Convert element positions to relative to center lines
+    for el in layout_data.get('elements', []):
+        rel_el = dict(el)
+        if 'position' in rel_el:
+            x_abs, y_abs = rel_el['position']
+            rel_el['position'] = [x_abs - center_x, y_abs - center_y]
+        if 'start' in rel_el:
+            x1_abs, y1_abs = rel_el['start']
+            rel_el['start'] = [x1_abs - center_x, y1_abs - center_y]
+        if 'end' in rel_el:
+            x2_abs, y2_abs = rel_el['end']
+            rel_el['end'] = [x2_abs - center_x, y2_abs - center_y]
+        relative_layout['elements'].append(rel_el)
+    
+    return relative_layout
+
+
+def convert_relative_to_absolute(scene_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert design-center-relative coordinates to absolute positions for active press."""
+    center_lines = scene_data.get('center_lines', {})
+    center_x = center_lines.get('vertical')
+    center_y = center_lines.get('horizontal')
+    
+    if center_x is None or center_y is None:
+        # No center lines defined, keep relative positions
+        return scene_data
+    
+    # Create absolute layout
+    absolute_layout = {
+        'object_orientation': scene_data.get('object_orientation', 0.0),
+        'center_lines': {
+            'horizontal': center_y,
+            'vertical': center_x
+        },
+        'elements': []
+    }
+    
+    # Convert element positions from relative to absolute
+    for el in scene_data.get('elements', []):
+        abs_el = dict(el)
+        if 'position' in abs_el:
+            x_rel, y_rel = abs_el['position']
+            abs_el['position'] = [x_rel + center_x, y_rel + center_y]
+        if 'start' in abs_el:
+            x1_rel, y1_rel = abs_el['start']
+            abs_el['start'] = [x1_rel + center_x, y1_rel + center_y]
+        if 'end' in abs_el:
+            x2_rel, y2_rel = abs_el['end']
+            abs_el['end'] = [x2_rel + center_x, y2_rel + center_y]
+        absolute_layout['elements'].append(abs_el)
+    
+    return absolute_layout
+
+
 @app.route('/api/configurations', methods=['POST'])
 def save_configuration():
-    """Save layout configuration."""
+    """Save layout configuration in design-center coordinate system."""
     try:
         data = request.get_json()
         config_name = data.get('name')
@@ -670,7 +1086,19 @@ def save_configuration():
         if not config_name or not config_data:
             return jsonify({'error': 'Name and data required'}), 400
         
-        success = db.save_configuration(config_name, config_data)
+        # Extract layout from config_data
+        layout_data = config_data.get('layout', config_data)
+        
+        # Convert absolute positions to design-center-relative
+        relative_layout = convert_absolute_to_relative(layout_data)
+        
+        # Store scene with relative coordinates
+        scene_data = {
+            'layout': relative_layout,
+            'config_name': config_name
+        }
+        
+        success = db.save_configuration(config_name, scene_data)
         if success:
             return jsonify({'success': True})
         else:
@@ -692,16 +1120,43 @@ def list_configurations():
 
 @app.route('/api/configurations/<config_name>', methods=['GET'])
 def load_configuration(config_name):
-    """Load specific configuration."""
+    """Load specific configuration and convert to absolute coordinates for active press."""
     try:
-        config_data = db.load_configuration(config_name)
-        if config_data:
+        scene_data = db.load_configuration(config_name)
+        if scene_data:
             # Persist last loaded scene name
             try:
                 db.set_last_scene(config_name)
             except Exception:
                 pass
-            return jsonify(config_data)
+            
+            # Extract layout (may be in 'layout' key or root)
+            layout_data = scene_data.get('layout', scene_data)
+            
+            # Convert relative coordinates to absolute for active press
+            absolute_layout = convert_relative_to_absolute(layout_data)
+            
+            # Update layout state with converted coordinates
+            if 'object_orientation' in absolute_layout:
+                projector.set_object_orientation(absolute_layout['object_orientation'])
+            
+            if 'center_lines' in absolute_layout:
+                center_lines = absolute_layout['center_lines']
+                projector.set_center_lines(
+                    horizontal_y=center_lines.get('horizontal'),
+                    vertical_x=center_lines.get('vertical')
+                )
+            
+            if 'elements' in absolute_layout:
+                projector.clear_layout()
+                for element in absolute_layout['elements']:
+                    projector.add_element(element.get('type'), element)
+            
+            # Return both relative (for storage) and absolute (for use) versions
+            result = dict(scene_data)
+            result['layout'] = absolute_layout
+            
+            return jsonify(result)
         else:
             return jsonify({'error': 'Configuration not found'}), 404
     except Exception as e:
@@ -726,6 +1181,114 @@ def last_scene():
         if not ok:
             return jsonify({'error': 'Failed to persist last scene'}), 500
         return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/operation/load-scene', methods=['POST'])
+def operation_load_scene():
+    """Load a scene for a specific press in operation mode."""
+    try:
+        data = request.get_json() or {}
+        press_id = data.get('press_id')
+        scene_name = data.get('scene_name')
+        
+        if not press_id or not scene_name:
+            return jsonify({'error': 'press_id and scene_name required'}), 400
+        
+        if press_id not in _press_calibrators:
+            return jsonify({'error': f'Invalid press_id: {press_id}'}), 400
+        
+        # Load scene configuration
+        scene_data = db.load_configuration(scene_name)
+        if not scene_data:
+            return jsonify({'error': f'Scene not found: {scene_name}'}), 404
+        
+        # Extract layout (may be in 'layout' key or root)
+        layout_data = scene_data.get('layout', scene_data)
+        
+        # Ensure press calibration is loaded
+        load_press_calibration(press_id)
+        
+        # Convert relative coordinates to absolute for target press
+        # Note: convert_relative_to_absolute uses center lines from scene, not calibration
+        absolute_layout = convert_relative_to_absolute(layout_data)
+        
+        # Store in operation state
+        _operation_state[press_id] = {
+            'scene_name': scene_name,
+            'layout_data': absolute_layout
+        }
+        
+        # Broadcast operation state update
+        socketio.emit('operation_state_updated', _operation_state, room='projector')
+        socketio.emit('operation_state_updated', _operation_state, room='control')
+        
+        # Trigger render for operation mode
+        try:
+            svg_content = projector.generate_svg(operation_mode=True)
+            socketio.emit('layout_updated', {
+                'layout': None,
+                'svg': svg_content,
+                'operation_mode': True
+            }, room='control')
+        except Exception:
+            pass
+        
+        return jsonify({'success': True, 'press_id': press_id, 'scene_name': scene_name})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/operation/clear-scene', methods=['POST'])
+def operation_clear_scene():
+    """Clear a scene from a specific press in operation mode."""
+    try:
+        data = request.get_json() or {}
+        press_id = data.get('press_id')
+        
+        if not press_id:
+            return jsonify({'error': 'press_id required'}), 400
+        
+        if press_id not in _press_calibrators:
+            return jsonify({'error': f'Invalid press_id: {press_id}'}), 400
+        
+        # Clear operation state for this press
+        _operation_state[press_id] = {
+            'scene_name': None,
+            'layout_data': None
+        }
+        
+        # Broadcast operation state update
+        socketio.emit('operation_state_updated', _operation_state, room='projector')
+        socketio.emit('operation_state_updated', _operation_state, room='control')
+        
+        # Trigger render for operation mode (if any scenes still loaded)
+        try:
+            operation_mode_active = any(
+                _operation_state.get(press_id, {}).get('layout_data')
+                for press_id in ['press1', 'press2']
+            )
+            if operation_mode_active:
+                svg_content = projector.generate_svg(operation_mode=True)
+                socketio.emit('layout_updated', {
+                    'layout': None,
+                    'svg': svg_content,
+                    'operation_mode': True
+                }, room='control')
+        except Exception:
+            pass
+        
+        return jsonify({'success': True, 'press_id': press_id})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/operation/state', methods=['GET'])
+def get_operation_state():
+    """Get current operation state."""
+    try:
+        return jsonify(_operation_state)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -763,22 +1326,32 @@ def handle_join_room(data):
         if room == 'projector':
             # Inform control about current projector resolution
             emit('projector_resolution', projector_resolution, room='control')
-            # Send current calibration and layout
-            calibration_data = db.load_calibration()
-            if calibration_data:
-                calibrator.load_calibration_data(calibration_data)
-                emit('calibration_updated', calibration_data)
+            # Send calibrations for all presses
+            for press_id in ['press1', 'press2']:
+                calibration_data = db.load_press_calibration(press_id)
+                if calibration_data:
+                    load_press_calibration(press_id)
+                    emit('press_calibration_updated', {
+                        'press_id': press_id,
+                        'calibration_data': calibration_data
+                    })
             
             # Do not send raw SVG to projector on join; wait for rasterized frames
         elif room == 'control':
-            # Send current calibration to populate control inputs on load
-            calibration_data = db.load_calibration()
-            if calibration_data:
-                try:
-                    calibrator.load_calibration_data(calibration_data)
-                except Exception:
-                    pass
-                emit('calibration_updated', calibration_data)
+            # Send calibrations for all presses to populate control inputs on load
+            for press_id in ['press1', 'press2']:
+                calibration_data = db.load_press_calibration(press_id)
+                if calibration_data:
+                    try:
+                        load_press_calibration(press_id)
+                        emit('press_calibration_updated', {
+                            'press_id': press_id,
+                            'calibration_data': calibration_data
+                        })
+                    except Exception:
+                        pass
+            # Send active press info
+            emit('active_press_changed', {'press_id': _active_press})
 
 
 @socketio.on('leave_room')
@@ -795,21 +1368,49 @@ def handle_leave_room(data):
 @socketio.on('request_update')
 def handle_request_update():
     """Handle request for current state update."""
-    # Send current calibration
-    calibration_data = db.load_calibration()
-    if calibration_data:
-        calibrator.load_calibration_data(calibration_data)
-        emit('calibration_updated', calibration_data)
+    # Send calibrations for all presses
+    for press_id in ['press1', 'press2']:
+        calibration_data = db.load_press_calibration(press_id)
+        if calibration_data:
+            load_press_calibration(press_id)
+            emit('press_calibration_updated', {
+                'press_id': press_id,
+                'calibration_data': calibration_data
+            })
+    
+    # Send active press info
+    emit('active_press_changed', {'press_id': _active_press})
+    
+    # Send operation state
+    emit('operation_state_updated', _operation_state)
     
     # Send current layout to control only; projector will wait for rasterized frame
     try:
-        layout_data = projector.get_layout_data()
-        svg_content = projector.generate_svg()
-        try:
-            save_control_svg(svg_content)
-        except Exception:
-            pass
-        send_layout_update_to_control(layout_data, svg_content)
+        # Check if operation mode is active
+        operation_mode_active = any(
+            _operation_state.get(press_id, {}).get('layout_data')
+            for press_id in ['press1', 'press2']
+        )
+        
+        if operation_mode_active:
+            svg_content = projector.generate_svg(operation_mode=True)
+            try:
+                save_control_svg(svg_content)
+            except Exception:
+                pass
+            emit('layout_updated', {
+                'layout': None,
+                'svg': svg_content,
+                'operation_mode': True
+            })
+        else:
+            layout_data = projector.get_layout_data()
+            svg_content = projector.generate_svg()
+            try:
+                save_control_svg(svg_content)
+            except Exception:
+                pass
+            send_layout_update_to_control(layout_data, svg_content)
     except Exception as e:
         logger.exception("Error handling request_update")
 
@@ -880,13 +1481,15 @@ def handle_show_validation_pattern():
         # Additionally, display the saved calibration corner points on the projector
         # Reload calibration to avoid stale in-memory state
         try:
-            saved = db.load_calibration()
+            saved = db.load_press_calibration(_active_press)
             if saved:
+                calibrator = get_calibrator(_active_press)
                 calibrator.load_calibration_data(saved)
         except Exception as e:
             logger.exception("Failed to reload calibration before showing points")
 
         try:
+            calibrator = get_calibrator(_active_press)
             src = getattr(calibrator, 'source_points', None)
             if src is not None:
                 pts = src.tolist()
@@ -1014,16 +1617,110 @@ def handle_set_debug_mode(data):
         logger.exception("Error setting debug mode")
 
 
+def _render_press_scene(press_id: str, svg_str: str, output_width: int, output_height: int) -> np.ndarray:
+    """
+    Render a scene for a specific press and apply perspective transformation.
+    
+    Args:
+        press_id: ID of the press to render
+        svg_str: SVG string to render (in press space, mm coordinates)
+        output_width: Output width in projector pixels
+        output_height: Output height in projector pixels
+    
+    Returns:
+        Warped image as numpy array (BGRA), or None if rendering failed
+    """
+    # Ensure calibration is loaded
+    calibrator = get_calibrator(press_id)
+    if not calibrator.is_calibrated():
+        load_press_calibration(press_id)
+        if not calibrator.is_calibrated():
+            logger.warning(f"Calibration not available for {press_id}, cannot render")
+            return None
+    
+    # Process SVG (inline images, etc.)
+    svg_processed = adjust_upload_image_heights(svg_str)
+    svg_processed = inline_upload_image_links(svg_processed)
+    
+    # Determine rasterization resolution based on press space
+    try:
+        # destination_points is [[0,0], [tw,0], [tw,th], [0,th]]
+        dw = int(calibrator.destination_points[1][0] - calibrator.destination_points[0][0])
+        dh = int(calibrator.destination_points[2][1] - calibrator.destination_points[1][1])
+        target_w = max(1, dw)
+        target_h = max(1, dh)
+    except Exception:
+        # Fallback: use a reasonable default based on press dimensions
+        target_w = int(calibrator.press_width_mm * 10)  # 10 pixels per mm
+        target_h = int(calibrator.press_height_mm * 10)
+    
+    # Rasterize SVG at press-space resolution
+    png_bytes = cairosvg.svg2png(bytestring=svg_processed.encode('utf-8'), 
+                                  output_width=target_w, 
+                                  output_height=target_h)
+    
+    # Decode PNG to image (BGRA)
+    buf = np.frombuffer(png_bytes, dtype=np.uint8)
+    img = cv2.imdecode(buf, cv2.IMREAD_UNCHANGED)
+    if img is None:
+        logger.warning(f"Failed to decode PNG for {press_id}")
+        return None
+    
+    # Apply perspective transformation to map from press space to projector space
+    if not debug_bypass_warp and calibrator.is_calibrated():
+        # Get transformation matrix (maps from projector pixels to press space)
+        H = calibrator.transformation_matrix
+        # We need inverse: map from press space to projector pixels
+        H_inv = np.linalg.inv(H)
+        # Apply perspective transformation
+        warped = cv2.warpPerspective(img, H_inv, (output_width, output_height), 
+                                      flags=cv2.INTER_CUBIC, 
+                                      borderMode=cv2.BORDER_TRANSPARENT,
+                                      borderValue=(0, 0, 0, 0))
+        logger.debug(f"Applied perspective transformation for {press_id}")
+    else:
+        # No calibration or debug bypass: just resize
+        if img.shape[1] != output_width or img.shape[0] != output_height:
+            warped = cv2.resize(img, (output_width, output_height), interpolation=cv2.INTER_LINEAR)
+        else:
+            warped = img
+        if not calibrator.is_calibrated():
+            logger.warning(f"Calibration not available for {press_id}, rendering without perspective transformation")
+    
+    return warped
+
+
 def _perform_render_svg(data):
     """Perform the actual rasterization and emission of one SVG payload."""
     svg_str = data.get('svg', '')
     if not svg_str:
         return
-    target_w = int(data.get('target_width', projector_resolution['width']))
-    target_h = int(data.get('target_height', projector_resolution['height']))
-    # First correct image heights based on aspect, then inline links
-    svg_processed = adjust_upload_image_heights(svg_str)
-    svg_processed = inline_upload_image_links(svg_processed)
+    
+    # Check if operation mode is active
+    operation_mode = data.get('operation_mode', False)
+    if not operation_mode:
+        # Check operation state to determine if we should use operation mode
+        operation_mode = any(
+            _operation_state.get(press_id, {}).get('layout_data')
+            for press_id in ['press1', 'press2']
+        )
+    
+    # For operation mode, we'll render each press separately later
+    # For now, just process the SVG string if provided (for control preview)
+    if operation_mode:
+        # Generate multi-press SVG for control preview only
+        svg_str = projector.generate_svg(
+            width=projector_resolution['width'],
+            height=projector_resolution['height'],
+            operation_mode=True
+        )
+        # Process SVG for control preview (not for projector rendering)
+        svg_processed = adjust_upload_image_heights(svg_str)
+        svg_processed = inline_upload_image_links(svg_processed)
+    else:
+        # Normal mode: process SVG as before
+        svg_processed = adjust_upload_image_heights(svg_str)
+        svg_processed = inline_upload_image_links(svg_processed)
 
     # Save SVG to disk before rasterizing (with pretty printing)
     try:
@@ -1041,38 +1738,64 @@ def _perform_render_svg(data):
     except Exception as e:
         logger.exception("Failed to save SVG to disk")
 
-    png_bytes = cairosvg.svg2png(bytestring=svg_processed.encode('utf-8'), output_width=target_w, output_height=target_h)
-
-    # Decode PNG to image (BGRA)
-    buf = np.frombuffer(png_bytes, dtype=np.uint8)
-    img = cv2.imdecode(buf, cv2.IMREAD_UNCHANGED)
-    if img is None:
-        return
-
-    # Save the unwarped press-space image for debugging
-    try:
-        debug_dir = os.path.join('debug', 'renders')
-        os.makedirs(debug_dir, exist_ok=True)
-        cv2.imwrite(os.path.join(debug_dir, 'latest_unwarped.png'), img)
-    except Exception as e:
-        logger.exception("Failed to save unwarped render images")
-
     out_w, out_h = projector_resolution['width'], projector_resolution['height']
 
-    # Warp unless bypassed
-    if not debug_bypass_warp and calibrator.is_calibrated():
-        H = calibrator.transformation_matrix
-        H_inv = np.linalg.inv(H)
-        warped = cv2.warpPerspective(img, H_inv, (out_w, out_h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT)
+    # Render based on mode
+    if not operation_mode:
+        # Normal mode: render single press scene
+        warped = _render_press_scene(_active_press, svg_processed, out_w, out_h)
+        if warped is None:
+            return
+        
+        # Save the unwarped press-space image for debugging (we'd need to capture it before warping)
+        # For now, just save the warped image
     else:
-        warped = cv2.resize(img, (out_w, out_h), interpolation=cv2.INTER_LINEAR)
+        # Operation mode: Render each press separately, apply perspective transformation, then composite
+        # Create a blank canvas for compositing
+        warped = np.zeros((out_h, out_w, 4), dtype=np.uint8)
+        
+        # Process each press that has a scene loaded
+        for press_id in ['press1', 'press2']:
+            press_state = _operation_state.get(press_id, {})
+            if not press_state.get('layout_data'):
+                continue
+            
+            # Generate SVG for this press only
+            press_svg = pj_generate_svg(press_id=press_id, operation_mode=False)
+            
+            # Render and warp this press's scene
+            press_warped = _render_press_scene(press_id, press_svg, out_w, out_h)
+            if press_warped is None:
+                continue
+            
+            # Composite: blend this press's warped image onto the canvas
+            # Use alpha blending if both images have alpha channel
+            if press_warped.shape[2] == 4 and warped.shape[2] == 4:
+                # Alpha compositing: new = src + (1 - src_alpha) * dst
+                alpha = press_warped[:, :, 3:4] / 255.0
+                warped = (press_warped[:, :, :4] * alpha + warped[:, :, :4] * (1 - alpha)).astype(np.uint8)
+            elif press_warped.shape[2] == 4:
+                # Press has alpha, canvas doesn't - convert canvas to RGBA
+                warped_rgb = cv2.cvtColor(warped, cv2.COLOR_BGRA2BGR) if warped.shape[2] == 4 else warped
+                warped = cv2.cvtColor(warped_rgb, cv2.COLOR_BGR2BGRA)
+                alpha = press_warped[:, :, 3:4] / 255.0
+                warped = (press_warped[:, :, :4] * alpha + warped[:, :, :4] * (1 - alpha)).astype(np.uint8)
+            else:
+                # Simple overlay (no alpha)
+                mask = np.any(press_warped > 0, axis=2)
+                warped[mask] = press_warped[mask] if warped.shape[2] == press_warped.shape[2] else cv2.cvtColor(press_warped, cv2.COLOR_BGR2BGRA)[mask]
+            
+            logger.debug(f"Composited warped image for {press_id} in operation mode")
+        
+        # If no presses were processed, create a blank image
+        if not any(_operation_state.get(press_id, {}).get('layout_data') for press_id in ['press1', 'press2']):
+            warped = np.zeros((out_h, out_w, 4), dtype=np.uint8)
+            logger.warning("Operation mode: No scenes loaded, rendering blank image")
 
     # Write debug images to disk (only keep the latest)
     try:
         debug_dir = os.path.join('debug', 'renders')
         os.makedirs(debug_dir, exist_ok=True)
-        # Save the high-res unwarped raster
-        cv2.imwrite(os.path.join(debug_dir, 'latest_unwarped.png'), img)
         cv2.imwrite(os.path.join(debug_dir, 'latest.png'), warped)
     except Exception as e:
         logger.exception("Failed to save debug render images")
@@ -1114,10 +1837,11 @@ def handle_render_svg(data):
 
 
 if __name__ == '__main__':
-    # Load existing calibration if available
-    calibration_data = db.load_calibration()
-    if calibration_data:
-        calibrator.load_calibration_data(calibration_data)
+    # Load existing calibrations for all presses if available
+    for press_id in ['press1', 'press2']:
+        calibration_data = db.load_press_calibration(press_id)
+        if calibration_data:
+            load_press_calibration(press_id)
     
     # Start periodic updates
     start_periodic_updates()

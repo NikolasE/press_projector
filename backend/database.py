@@ -15,13 +15,23 @@ class DB_interface(ABC):
     """Abstract database interface for storing system data."""
     
     @abstractmethod
-    def save_calibration(self, calibration_data: Dict[str, Any]) -> bool:
-        """Save calibration data."""
+    def save_press_calibration(self, press_id: str, calibration_data: Dict[str, Any]) -> bool:
+        """Save calibration data for a specific press."""
         pass
     
     @abstractmethod
-    def load_calibration(self) -> Optional[Dict[str, Any]]:
-        """Load calibration data."""
+    def load_press_calibration(self, press_id: str) -> Optional[Dict[str, Any]]:
+        """Load calibration data for a specific press."""
+        pass
+    
+    @abstractmethod
+    def list_presses(self) -> List[str]:
+        """List all configured press IDs."""
+        pass
+    
+    @abstractmethod
+    def delete_press(self, press_id: str) -> bool:
+        """Delete a press and its calibration."""
         pass
     
     @abstractmethod
@@ -70,12 +80,13 @@ class FileBasedDB(DB_interface):
     
     def __init__(self, base_path: str = "config"):
         self.base_path = base_path
-        self.calibration_file = os.path.join(base_path, "calibration.json")
+        self.presses_dir = os.path.join(base_path, "presses")
         self.jobs_dir = os.path.join(base_path, "jobs")
         self.configs_dir = os.path.join(base_path, "configurations")
         self.last_scene_file = os.path.join(base_path, "last_scene.json")
         
         # Create directories if they don't exist
+        os.makedirs(self.presses_dir, exist_ok=True)
         os.makedirs(self.jobs_dir, exist_ok=True)
         os.makedirs(self.configs_dir, exist_ok=True)
     
@@ -100,14 +111,40 @@ class FileBasedDB(DB_interface):
             logging.getLogger(__name__).exception("Error loading from %s", filepath)
             return None
     
-    def save_calibration(self, calibration_data: Dict[str, Any]) -> bool:
-        """Save calibration data."""
+    def save_press_calibration(self, press_id: str, calibration_data: Dict[str, Any]) -> bool:
+        """Save calibration data for a specific press."""
+        calibration_data['press_id'] = press_id
         calibration_data['timestamp'] = datetime.now().isoformat()
-        return self._save_json(self.calibration_file, calibration_data)
+        calibration_file = os.path.join(self.presses_dir, f"{press_id}.json")
+        return self._save_json(calibration_file, calibration_data)
     
-    def load_calibration(self) -> Optional[Dict[str, Any]]:
-        """Load calibration data."""
-        return self._load_json(self.calibration_file)
+    def load_press_calibration(self, press_id: str) -> Optional[Dict[str, Any]]:
+        """Load calibration data for a specific press."""
+        calibration_file = os.path.join(self.presses_dir, f"{press_id}.json")
+        return self._load_json(calibration_file)
+    
+    def list_presses(self) -> List[str]:
+        """List all configured press IDs."""
+        try:
+            if not os.path.exists(self.presses_dir):
+                return []
+            files = [f for f in os.listdir(self.presses_dir) if f.endswith('.json')]
+            return [f[:-5] for f in files]  # Remove .json extension
+        except Exception as e:
+            logging.getLogger(__name__).exception("Error listing presses")
+            return []
+    
+    def delete_press(self, press_id: str) -> bool:
+        """Delete a press and its calibration."""
+        try:
+            calibration_file = os.path.join(self.presses_dir, f"{press_id}.json")
+            if os.path.exists(calibration_file):
+                os.remove(calibration_file)
+                return True
+            return False
+        except Exception as e:
+            logging.getLogger(__name__).exception("Error deleting press %s", press_id)
+            return False
     
     def save_job(self, job_id: str, job_data: Dict[str, Any]) -> bool:
         """Save job data."""

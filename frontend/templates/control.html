@@ -24,8 +24,16 @@
             background: #2c3e50;
             color: white;
             padding: 1rem;
-            text-align: center;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            margin: 0;
+            flex: 1;
+            text-align: center;
         }
 
         .main-container {
@@ -82,9 +90,6 @@
         }
 
         .setup-tab-button {
-            position: fixed;
-            top: 10px;
-            right: 10px;
             background: #e74c3c;
             color: white;
             border: none;
@@ -92,7 +97,11 @@
             border-radius: 4px;
             cursor: pointer;
             font-size: 0.8rem;
-            z-index: 1000;
+            transition: background 0.2s;
+        }
+
+        .setup-tab-button:hover {
+            background: #c0392b;
         }
 
         .form-group {
@@ -330,21 +339,37 @@
 </head>
 <body>
     <div class="header">
+        <div style="width: 120px;"></div> <!-- Spacer for centering -->
         <h1>Press Projector Control</h1>
+        <button class="setup-tab-button" onclick="toggleSetupMode()">Setup & Maintenance</button>
     </div>
-
-    <button class="setup-tab-button" onclick="toggleSetupMode()">Setup & Maintenance</button>
 
     <div class="main-container">
         <div class="sidebar">
             <div class="tab-buttons">
                 <button class="tab-button active" onclick="switchTab('layout')">Layout</button>
+                <button class="tab-button" onclick="switchTab('operation')">Operation</button>
                 <button class="tab-button" onclick="switchTab('files')">Files</button>
             </div>
 
             <!-- Layout Tab -->
             <div id="layout-tab" class="tab-container active">
                 <h3>Layout Editor</h3>
+                
+                <!-- Press Selection -->
+                <div class="form-group" style="border: 1px solid #ddd; padding: 0.75rem; border-radius: 4px; margin-bottom: 1rem; background: #f9f9f9;">
+                    <label style="font-weight: bold; margin-bottom: 0.5rem; display: block;">Active Press</label>
+                    <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem;">
+                        <button class="btn" id="press1Btn" onclick="selectPress('press1')" style="flex: 1;">Press 1</button>
+                        <button class="btn" id="press2Btn" onclick="selectPress('press2')" style="flex: 1;">Press 2</button>
+                    </div>
+                    <div id="pressStatus" style="font-size: 0.85rem; color: #666;">
+                        <!-- Press status will be shown here -->
+                    </div>
+                    <div id="pressManagement" style="margin-top: 0.5rem; display: none;">
+                        <!-- Press management will be added later -->
+                    </div>
+                </div>
                 
                 <div class="form-group">
                     <div style="display:flex; align-items:center; gap:0.5rem;">
@@ -411,6 +436,50 @@
                 </div>
             </div>
 
+            <!-- Operation Tab -->
+            <div id="operation-tab" class="tab-container">
+                <h3>Operation Mode</h3>
+                <p style="font-size: 0.9rem; color: #666; margin-bottom: 1rem;">Select scenes for each press independently.</p>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <!-- Press 1 Column -->
+                    <div style="border: 1px solid #ddd; padding: 1rem; border-radius: 4px; background: #f9f9f9;">
+                        <h4 style="margin: 0 0 0.5rem 0;">Press 1</h4>
+                        <div id="press1CalibrationStatus" style="font-size: 0.85rem; margin-bottom: 0.5rem; color: #e74c3c;">
+                            Not calibrated
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0.5rem;">
+                            <select id="press1SceneSelect" style="width: 100%; padding: 0.5rem;">
+                                <option value="">-- Select Scene --</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-success" onclick="loadSceneForPress('press1')" style="width: 100%; margin-bottom: 0.5rem;">Load Scene</button>
+                        <div id="press1CurrentScene" style="font-size: 0.85rem; color: #666; margin-bottom: 0.5rem; min-height: 1.5rem;">
+                            No scene loaded
+                        </div>
+                        <button class="btn" onclick="clearSceneForPress('press1')" style="width: 100%; background: #e74c3c; display: none;" id="press1ClearBtn">Clear</button>
+                    </div>
+                    
+                    <!-- Press 2 Column -->
+                    <div style="border: 1px solid #ddd; padding: 1rem; border-radius: 4px; background: #f9f9f9;">
+                        <h4 style="margin: 0 0 0.5rem 0;">Press 2</h4>
+                        <div id="press2CalibrationStatus" style="font-size: 0.85rem; margin-bottom: 0.5rem; color: #e74c3c;">
+                            Not calibrated
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0.5rem;">
+                            <select id="press2SceneSelect" style="width: 100%; padding: 0.5rem;">
+                                <option value="">-- Select Scene --</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-success" onclick="loadSceneForPress('press2')" style="width: 100%; margin-bottom: 0.5rem;">Load Scene</button>
+                        <div id="press2CurrentScene" style="font-size: 0.85rem; color: #666; margin-bottom: 0.5rem; min-height: 1.5rem;">
+                            No scene loaded
+                        </div>
+                        <button class="btn" onclick="clearSceneForPress('press2')" style="width: 100%; background: #e74c3c; display: none;" id="press2ClearBtn">Clear</button>
+                    </div>
+                </div>
+            </div>
+
             <!-- Files Tab -->
             <div id="files-tab" class="tab-container">
                 <h3>File Management</h3>
@@ -462,6 +531,18 @@
                     <button class="btn" onclick="toggleCalibrationGuide()" style="background: #3498db; padding: 0.5rem 1rem; font-size: 0.9rem;">
                         📖 View Calibration Guide
                     </button>
+                </div>
+                
+                <!-- Press Selection for Calibration -->
+                <div class="form-group" style="margin-bottom: 1rem; border: 1px solid #ddd; padding: 0.75rem; border-radius: 4px; background: white;">
+                    <label style="font-weight: bold; margin-bottom: 0.5rem; display: block;">Calibrate Press</label>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <button class="btn" id="setupPress1Btn" onclick="selectCalibrationPress('press1')" style="flex: 1;">Press 1</button>
+                        <button class="btn" id="setupPress2Btn" onclick="selectCalibrationPress('press2')" style="flex: 1;">Press 2</button>
+                    </div>
+                    <div id="setupPressStatus" style="font-size: 0.85rem; color: #666; margin-top: 0.5rem;">
+                        <!-- Press status will be shown here -->
+                    </div>
                 </div>
                 
                 <!-- Calibration Guide (Hidden by default) -->
@@ -685,6 +766,12 @@
         let files = [];
         let configurations = [];
         let selectedElementIndex = -1;
+        let activePress = 'press1';  // Current active press for layout editing
+        let pressCalibrations = {};  // Store calibration status for each press
+        let operationState = {  // Operation mode state
+            press1: { scene_name: null, layout_data: null },
+            press2: { scene_name: null, layout_data: null }
+        };
 
         // Guard to accept only a single orientation change per continuous spinner hold
         const orientationSpinHold = { active: false, processed: false };
@@ -702,6 +789,27 @@
             loadConfigurations();
             updateElementList();
             setupNumericInputs();
+            // Initialize press management
+            loadPressCalibration('press1');
+            loadPressCalibration('press2');
+            fetch('/api/active-press')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.press_id) {
+                        activePress = data.press_id;
+                        updatePressSelectionUI();
+                    }
+                });
+            // Initialize calibration press selection
+            calibrationPress = 'press1';
+            updateCalibrationPressSelectionUI();
+            // Load operation state
+            fetch('/api/operation/state')
+                .then(response => response.json())
+                .then(data => {
+                    operationState = data;
+                    updateOperationTabUI();
+                });
             // Attempt to auto-load last scene after initial data fetch
             fetchLastSceneAndAutoLoad();
 
@@ -779,6 +887,75 @@
                     renderControlPreview();
                 }
                 showAlert('Calibration updated successfully', 'success');
+            });
+
+            socket.on('press_calibration_updated', function(data) {
+                console.log('Press calibration updated:', data);
+                const pressId = data.press_id;
+                const cal = data.calibration_data;
+                if (pressId && cal) {
+                    pressCalibrations[pressId] = cal;
+                    updatePressStatus();
+                    if (pressId === activePress) {
+                        setPressInputs(cal.press_width_mm, cal.press_height_mm);
+                        renderControlPreview();
+                    }
+                    // Update calibration press selection UI if in Setup & Maintenance
+                    if (pressId === calibrationPress) {
+                        updateCalibrationPressSelectionUI();
+                        updateSetupPressDimensions(pressId);
+                    }
+                }
+            });
+
+            socket.on('press_created', function(data) {
+                console.log('Press created:', data);
+                const pressId = data.press_id;
+                if (pressId === 'press2') {
+                    loadPressCalibration('press2');
+                }
+            });
+
+            socket.on('press_deleted', function(data) {
+                console.log('Press deleted:', data);
+                const pressId = data.press_id;
+                if (pressId === 'press2') {
+                    pressCalibrations['press2'] = null;
+                    if (activePress === 'press2') {
+                        selectPress('press1');
+                    }
+                    updatePressStatus();
+                }
+            });
+
+            socket.on('active_press_changed', function(data) {
+                console.log('Active press changed:', data);
+                if (data.press_id) {
+                    activePress = data.press_id;
+                    updatePressSelectionUI();
+                }
+            });
+
+            socket.on('operation_state_updated', function(data) {
+                console.log('Operation state updated:', data);
+                operationState = data;
+                updateOperationTabUI();
+                // Trigger render if in operation mode
+                if (socket && socket.connected) {
+                    const hasScenes = data.press1?.scene_name || data.press2?.scene_name;
+                    if (hasScenes) {
+                        // Request render with operation mode flag
+                        const svgContent = document.getElementById('previewSvg')?.innerHTML || '';
+                        if (svgContent) {
+                            socket.emit('render_svg', {
+                                svg: svgContent,
+                                target_width: projectorTarget.width || 1920,
+                                target_height: projectorTarget.height || 1080,
+                                operation_mode: true
+                            });
+                        }
+                    }
+                }
             });
 
             socket.on('layout_updated', function(data) {
@@ -878,6 +1055,262 @@
         }
 
         // Tab switching
+        // Press management functions
+        function selectPress(pressId) {
+            activePress = pressId;
+            updatePressSelectionUI();
+            // Set active press on server
+            fetch('/api/active-press', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ press_id: pressId })
+            }).then(() => {
+                // Load calibration for selected press
+                loadPressCalibration(pressId);
+                // Refresh layout if needed
+                renderControlPreview();
+            });
+        }
+
+        function selectCalibrationPress(pressId) {
+            calibrationPress = pressId;
+            updateCalibrationPressSelectionUI();
+            // Load calibration for selected press
+            loadPressCalibration(pressId);
+            // Update press dimensions in setup form
+            updateSetupPressDimensions(pressId);
+        }
+
+        function updateCalibrationPressSelectionUI() {
+            const press1Btn = document.getElementById('setupPress1Btn');
+            const press2Btn = document.getElementById('setupPress2Btn');
+            const statusEl = document.getElementById('setupPressStatus');
+            
+            if (press1Btn) {
+                press1Btn.style.background = calibrationPress === 'press1' ? '#3498db' : '#ecf0f1';
+                press1Btn.style.color = calibrationPress === 'press1' ? 'white' : '#333';
+            }
+            if (press2Btn) {
+                press2Btn.style.background = calibrationPress === 'press2' ? '#3498db' : '#ecf0f1';
+                press2Btn.style.color = calibrationPress === 'press2' ? 'white' : '#333';
+            }
+            
+            if (statusEl) {
+                const cal = pressCalibrations[calibrationPress];
+                if (cal) {
+                    statusEl.textContent = `Calibrated: ${cal.press_width_mm}×${cal.press_height_mm}mm`;
+                    statusEl.style.color = '#27ae60';
+                } else {
+                    statusEl.textContent = 'Not calibrated';
+                    statusEl.style.color = '#e74c3c';
+                }
+            }
+        }
+
+        function updateSetupPressDimensions(pressId) {
+            const cal = pressCalibrations[pressId];
+            if (cal) {
+                const widthInput = document.getElementById('pressWidth');
+                const heightInput = document.getElementById('pressHeight');
+                if (widthInput) widthInput.value = cal.press_width_mm || '';
+                if (heightInput) heightInput.value = cal.press_height_mm || '';
+            }
+        }
+
+        function updatePressSelectionUI() {
+            const press1Btn = document.getElementById('press1Btn');
+            const press2Btn = document.getElementById('press2Btn');
+            if (press1Btn) {
+                press1Btn.style.background = activePress === 'press1' ? '#3498db' : '#ecf0f1';
+                press1Btn.style.color = activePress === 'press1' ? 'white' : '#333';
+            }
+            if (press2Btn) {
+                press2Btn.style.background = activePress === 'press2' ? '#3498db' : '#ecf0f1';
+                press2Btn.style.color = activePress === 'press2' ? 'white' : '#333';
+            }
+            updatePressStatus();
+        }
+
+        function updatePressStatus() {
+            const statusEl = document.getElementById('pressStatus');
+            const press1Status = pressCalibrations['press1'];
+            const press2Status = pressCalibrations['press2'];
+            
+            if (statusEl) {
+                let statusText = `Active: ${activePress}`;
+                if (activePress === 'press1' && press1Status) {
+                    statusText += ` | Calibrated: ${press1Status.press_width_mm}×${press1Status.press_height_mm}mm`;
+                } else if (activePress === 'press2' && press2Status) {
+                    statusText += ` | Calibrated: ${press2Status.press_width_mm}×${press2Status.press_height_mm}mm`;
+                } else {
+                    statusText += ` | Not calibrated`;
+                }
+                statusEl.textContent = statusText;
+            }
+
+            // Show/hide press2 management (will be implemented later)
+            const pressManagement = document.getElementById('pressManagement');
+            if (pressManagement) {
+                pressManagement.style.display = 'none';
+            }
+
+            // Update operation tab status
+            updateOperationTabStatus();
+        }
+
+        function loadPressCalibration(pressId) {
+            fetch(`/api/calibration?press_id=${pressId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        pressCalibrations[pressId] = null;
+                    } else {
+                        pressCalibrations[pressId] = data;
+                    }
+                    updatePressStatus();
+                })
+                .catch(error => {
+                    console.error('Error loading calibration:', error);
+                    pressCalibrations[pressId] = null;
+                    updatePressStatus();
+                });
+        }
+
+        function addPress2() {
+            fetch('/api/presses', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ press_id: 'press2' })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('Press 2 added successfully', 'success');
+                    loadPressCalibration('press2');
+                } else {
+                    showAlert('Error adding Press 2: ' + (data.error || 'Unknown error'), 'error');
+                }
+            })
+            .catch(error => {
+                showAlert('Error adding Press 2: ' + error, 'error');
+            });
+        }
+
+        function removePress2() {
+            if (!confirm('Remove Press 2? This will delete its calibration. Continue?')) {
+                return;
+            }
+            fetch('/api/presses/press2', {
+                method: 'DELETE'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('Press 2 removed successfully', 'success');
+                    pressCalibrations['press2'] = null;
+                    if (activePress === 'press2') {
+                        selectPress('press1');
+                    }
+                    updatePressStatus();
+                } else {
+                    showAlert('Error removing Press 2: ' + (data.error || 'Unknown error'), 'error');
+                }
+            })
+            .catch(error => {
+                showAlert('Error removing Press 2: ' + error, 'error');
+            });
+        }
+
+        // Operation mode functions
+        function loadSceneForPress(pressId) {
+            const selectEl = document.getElementById(`${pressId}SceneSelect`);
+            const sceneName = selectEl ? selectEl.value : '';
+            if (!sceneName) {
+                showAlert('Please select a scene', 'error');
+                return;
+            }
+            fetch('/api/operation/load-scene', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ press_id: pressId, scene_name: sceneName })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert(`Scene loaded for ${pressId}`, 'success');
+                    updateOperationTabUI();
+                    // Trigger render for operation mode
+                    if (window.socket && window.socket.connected) {
+                        setTimeout(() => {
+                            renderControlPreview();
+                        }, 100);
+                    }
+                } else {
+                    showAlert('Error loading scene: ' + (data.error || 'Unknown error'), 'error');
+                }
+            })
+            .catch(error => {
+                showAlert('Error loading scene: ' + error, 'error');
+            });
+        }
+
+        function clearSceneForPress(pressId) {
+            fetch('/api/operation/clear-scene', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ press_id: pressId })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert(`Scene cleared for ${pressId}`, 'success');
+                    updateOperationTabUI();
+                } else {
+                    showAlert('Error clearing scene: ' + (data.error || 'Unknown error'), 'error');
+                }
+            })
+            .catch(error => {
+                showAlert('Error clearing scene: ' + error, 'error');
+            });
+        }
+
+        function updateOperationTabUI() {
+            // Update current scene displays
+            ['press1', 'press2'].forEach(pressId => {
+                const currentSceneEl = document.getElementById(`${pressId}CurrentScene`);
+                const clearBtn = document.getElementById(`${pressId}ClearBtn`);
+                if (operationState[pressId] && operationState[pressId].scene_name) {
+                    if (currentSceneEl) {
+                        currentSceneEl.textContent = `Current: ${operationState[pressId].scene_name}`;
+                        currentSceneEl.style.color = '#27ae60';
+                    }
+                    if (clearBtn) clearBtn.style.display = 'block';
+                } else {
+                    if (currentSceneEl) {
+                        currentSceneEl.textContent = 'No scene loaded';
+                        currentSceneEl.style.color = '#666';
+                    }
+                    if (clearBtn) clearBtn.style.display = 'none';
+                }
+            });
+        }
+
+        function updateOperationTabStatus() {
+            ['press1', 'press2'].forEach(pressId => {
+                const statusEl = document.getElementById(`${pressId}CalibrationStatus`);
+                const cal = pressCalibrations[pressId];
+                if (statusEl) {
+                    if (cal) {
+                        statusEl.textContent = `Calibrated: ${cal.press_width_mm}×${cal.press_height_mm}mm`;
+                        statusEl.style.color = '#27ae60';
+                    } else {
+                        statusEl.textContent = 'Not calibrated';
+                        statusEl.style.color = '#e74c3c';
+                    }
+                }
+            });
+        }
+
         function switchTab(tabName) {
             // Hide all tabs
             document.querySelectorAll('.tab-container').forEach(tab => {
@@ -890,8 +1323,28 @@
             });
             
             // Show selected tab
-            document.getElementById(tabName + '-tab').classList.add('active');
-            event.target.classList.add('active');
+            const tabEl = document.getElementById(tabName + '-tab');
+            if (tabEl) {
+                tabEl.classList.add('active');
+            }
+            
+            // Set active button
+            if (event && event.target) {
+                event.target.classList.add('active');
+            } else {
+                // Find button by data attribute or text
+                document.querySelectorAll('.tab-button').forEach(btn => {
+                    if (btn.textContent.trim().toLowerCase().includes(tabName.toLowerCase())) {
+                        btn.classList.add('active');
+                    }
+                });
+            }
+            
+            // If switching to operation tab, update UI
+            if (tabName === 'operation') {
+                updateOperationTabUI();
+                updateOperationTabStatus();
+            }
         }
 
         // Setup mode toggle
@@ -1150,11 +1603,12 @@
                 }
             };
 
-            // Fetch existing calibration; if found, use projector_pixels to seed points
-            fetch('/api/calibration')
+            // Fetch existing calibration for the selected press; if found, use projector_pixels to seed points
+            const pressIdToCalibrate = calibrationPress || activePress;
+            fetch(`/api/calibration?press_id=${pressIdToCalibrate}`)
                 .then(r => r.ok ? r.json() : null)
                 .then(data => {
-                    if (data && Array.isArray(data.projector_pixels) && data.projector_pixels.length === 4) {
+                    if (data && !data.error && Array.isArray(data.projector_pixels) && data.projector_pixels.length === 4) {
                         const src = data.projector_pixels;
                         calibrationPoints = [
                             { id: 'tl', x: src[0][0], y: src[0][1], label: 'Top Left' },
@@ -1216,8 +1670,8 @@
 
         function onStoreCalibrationFromModal() {
             hideStopCalibrationModal();
-            // saveCalibration will also stop interactive mode if active
-            saveCalibration();
+            // Directly perform save since user already confirmed in the stop calibration modal
+            performSaveCalibration();
         }
 
         function onDiscardCalibrationFromModal() {
@@ -1590,10 +2044,14 @@
                 [0, H]
             ];
 
+            // Use calibrationPress (selected in Setup & Maintenance) instead of activePress
+            const pressIdToCalibrate = calibrationPress || activePress;
+
             fetch('/api/calibration', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    press_id: pressIdToCalibrate,
                     projector_pixels: projectorPixels,
                     target_pixels: { width: W, height: H },
                     press_width_mm: width,
@@ -2386,13 +2844,46 @@ function validateCalibration() {
 
         function loadConfigurations() {
             fetch('/api/configurations')
-            .then(response => response.json())
-            .then(data => {
-                configurations = data.configurations;
-                updateConfigurationList();
-            })
-            .catch(error => {
-                showAlert('Error loading configurations: ' + error, 'error');
+                .then(response => response.json())
+                .then(data => {
+                    configurations = data.configurations;
+                    updateConfigurationList();
+                    // Update operation tab scene selects
+                    updateOperationSceneSelects();
+                })
+                .catch(error => {
+                    showAlert('Error loading configurations: ' + error, 'error');
+                });
+        }
+
+        function updateOperationSceneSelects() {
+            ['press1', 'press2'].forEach(pressId => {
+                const selectEl = document.getElementById(`${pressId}SceneSelect`);
+                if (selectEl) {
+                    // Save current selection
+                    const currentValue = selectEl.value;
+                    // Check if there's a loaded scene in operation state
+                    const loadedScene = operationState[pressId] && operationState[pressId].scene_name;
+                    
+                    // Clear and repopulate
+                    selectEl.innerHTML = '<option value="">-- Select Scene --</option>';
+                    configurations.forEach(config => {
+                        const option = document.createElement('option');
+                        option.value = config;
+                        option.textContent = config;
+                        selectEl.appendChild(option);
+                    });
+                    
+                    // Priority: restore loaded scene, then current selection, then first scene
+                    if (loadedScene && configurations.includes(loadedScene)) {
+                        selectEl.value = loadedScene;
+                    } else if (currentValue && configurations.includes(currentValue)) {
+                        selectEl.value = currentValue;
+                    } else if (configurations.length > 0) {
+                        // Select first scene by default
+                        selectEl.value = configurations[0];
+                    }
+                }
             });
         }
 
