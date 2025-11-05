@@ -7,16 +7,17 @@
     },
     "elements": [
       {
-        "color": "#00ffff",
-        "font_size": 10,
+        "color": "#e01b24",
+        "font_size": 50,
         "label": "Temp",
         "position": [
-          15.1,
-          184.4
+          6.278327941894531,
+          45.109710693359375
         ],
         "rotation": 0,
-        "text": "180, 2min",
-        "type": "text"
+        "text": "ASD",
+        "type": "text",
+        "show_helper_lines": false
       },
       {
         "color": "#00ffff",
@@ -57,21 +58,21 @@
         "width": 100
       },
       {
-        "type": "image",
+        "color": "#00ffff",
+        "height": 13.036020583190396,
+        "image_url": "http://127.0.0.1:5000/uploads/ubuntu2.png",
+        "label": "Image 6",
+        "opacity": 0.5,
         "position": [
           116.4804916381836,
           30.228565216064453
         ],
-        "width": 40,
         "rotation": 0,
-        "image_url": "http://127.0.0.1:5000/uploads/ubuntu2.png",
-        "color": "#00ffff",
-        "opacity": 0.5,
-        "label": "Image 6",
-        "height": 13.036020583190396
+        "type": "image",
+        "width": 40
       }
     ]
   },
   "config_name": "asd",
-  "timestamp": "2025-11-04T22:30:14.487056"
+  "timestamp": "2025-11-05T09:31:00.575400"
 }

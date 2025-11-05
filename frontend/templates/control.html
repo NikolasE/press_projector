@@ -1057,6 +1057,7 @@
         // Tab switching
         // Press management functions
         function selectPress(pressId) {
+            console.log('[selectPress] Called with pressId:', pressId);
             activePress = pressId;
             updatePressSelectionUI();
             // Set active press on server
@@ -1065,9 +1066,11 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ press_id: pressId })
             }).then(() => {
+                console.log('[selectPress] Active press set on server');
                 // Load calibration for selected press
                 loadPressCalibration(pressId);
                 // Refresh layout if needed
+                console.log('[selectPress] Calling renderControlPreview()');
                 renderControlPreview();
             });
         }
@@ -1237,12 +1240,40 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
+                    // Update operationState immediately
+                    if (!operationState[pressId]) {
+                        operationState[pressId] = {};
+                    }
+                    operationState[pressId].scene_name = sceneName;
+                    // Note: layout_data will be updated when operation_state_updated socket event arrives
+                    
                     showAlert(`Scene loaded for ${pressId}`, 'success');
                     updateOperationTabUI();
-                    // Trigger render for operation mode
+                    
+                    // Explicitly trigger render with operation_mode: true
+                    // Don't use renderControlPreview() here as it renders the layout editor's SVG,
+                    // not the operation mode SVG. Instead, let the backend generate the correct SVG.
                     if (window.socket && window.socket.connected) {
                         setTimeout(() => {
-                            renderControlPreview();
+                            console.log('[loadSceneForPress] Explicitly requesting render with operation_mode: true');
+                            // Get the preview SVG as a placeholder, but backend will use operation state
+                            const rootNode = window.__lastRootNode || previewDraw?.node;
+                            if (rootNode) {
+                                const pressW = parseFloat(document.getElementById('pressWidth').value) || 300;
+                                const pressH = parseFloat(document.getElementById('pressHeight').value) || 200;
+                                const inner = rootNode.innerHTML || '';
+                                const svgString = `\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${pressW} ${pressH}" preserveAspectRatio="none">\n${inner}\n</svg>`;
+                                
+                                window.socket.emit('render_svg', {
+                                    svg: svgString,
+                                    target_width: projectorTarget.width || 1920,
+                                    target_height: projectorTarget.height || 1080,
+                                    operation_mode: true  // Explicitly set to true
+                                });
+                                console.log('[loadSceneForPress] render_svg emitted with operation_mode: true');
+                            } else {
+                                console.warn('[loadSceneForPress] No root node available, cannot emit render_svg');
+                            }
                         }, 100);
                     }
                 } else {
@@ -1263,8 +1294,21 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
+                    // Update operationState immediately so renderControlPreview() can detect operation mode change
+                    if (operationState[pressId]) {
+                        operationState[pressId].scene_name = null;
+                        operationState[pressId].layout_data = null;
+                    }
+                    
                     showAlert(`Scene cleared for ${pressId}`, 'success');
                     updateOperationTabUI();
+                    // Trigger render to update display
+                    if (window.socket && window.socket.connected) {
+                        setTimeout(() => {
+                            console.log('[clearSceneForPress] Calling renderControlPreview after scene clear');
+                            renderControlPreview();
+                        }, 100);
+                    }
                 } else {
                     showAlert('Error clearing scene: ' + (data.error || 'Unknown error'), 'error');
                 }
@@ -1591,20 +1635,21 @@
                 calibrationPoints[3] = { id: 'bl', x: centerX - rectWidth/2, y: centerY + rectHeight/2, label: 'Bottom Left' };
             };
 
+            // Fetch existing calibration for the selected press; if found, use projector_pixels to seed points
+            const pressIdToCalibrate = calibrationPress || activePress;
+            
             const proceed = () => {
                 renderCalibrationPreview();
                 if (window.socket) {
                     try { window.socket.emit('set_projection_mode', { mode: 'svg' }); } catch (e) {}
                     window.socket.emit('start_calibration', {
+                        press_id: pressIdToCalibrate,
                         points: calibrationPoints,
                         press_width_mm: width,
                         press_height_mm: height
                     });
                 }
             };
-
-            // Fetch existing calibration for the selected press; if found, use projector_pixels to seed points
-            const pressIdToCalibrate = calibrationPress || activePress;
             fetch(`/api/calibration?press_id=${pressIdToCalibrate}`)
                 .then(r => r.ok ? r.json() : null)
                 .then(data => {
@@ -3297,7 +3342,9 @@ function validateCalibration() {
                                 window.__imgAspectCache[url] = ratio;
                                 applySize(w * ratio);
                                 // After correcting size, re-send SVG for rasterization
-                                try { scheduleRenderSend(root.node); } catch (e) {}
+                                const inOpMode = (operationState.press1 && operationState.press1.scene_name) || 
+                                               (operationState.press2 && operationState.press2.scene_name);
+                                try { scheduleRenderSend(root.node, inOpMode); } catch (e) {}
                             }
                         };
                         pre.src = url;
@@ -3322,8 +3369,15 @@ function validateCalibration() {
             });
 
             // Debounced send to backend for rasterize+warp
+            console.log('[renderControlPreview] suppressImmediateRender:', suppressImmediateRender);
             if (!suppressImmediateRender) {
-                scheduleRenderSend(root.node);
+                // Check if we're in operation mode (any press has a scene loaded)
+                const inOperationMode = (operationState.press1 && operationState.press1.scene_name) || 
+                                       (operationState.press2 && operationState.press2.scene_name);
+                console.log('[renderControlPreview] Calling scheduleRenderSend, operation_mode:', inOperationMode);
+                scheduleRenderSend(root.node, inOperationMode);
+            } else {
+                console.log('[renderControlPreview] Skipping render send due to suppressImmediateRender');
             }
         }
 
@@ -3380,20 +3434,28 @@ function validateCalibration() {
         }
 
         let renderSendTimer = null;
-        function scheduleRenderSend(rootSvgNode) {
-            if (!window.socket) return;
+        function scheduleRenderSend(rootSvgNode, operationMode = false) {
+            console.log('[scheduleRenderSend] Called, window.socket:', !!window.socket, 'operation_mode:', operationMode);
+            if (!window.socket) {
+                console.warn('[scheduleRenderSend] No socket connection, returning early');
+                return;
+            }
             if (renderTimer) cancelAnimationFrame(renderTimer);
             renderTimer = requestAnimationFrame(() => {
+                console.log('[scheduleRenderSend] requestAnimationFrame callback executing');
                 // Wrap inner preview SVG content into a proper root SVG sized by projector ratio
                 const pressW = parseFloat(document.getElementById('pressWidth').value) || 300;
                 const pressH = parseFloat(document.getElementById('pressHeight').value) || 200;
                 const inner = rootSvgNode.innerHTML || '';
                 const svgString = `\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${pressW} ${pressH}" preserveAspectRatio="none">\n${inner}\n</svg>`;
+                console.log('[scheduleRenderSend] Emitting render_svg event, svg length:', svgString.length, 'target size:', projectorTarget.width, 'x', projectorTarget.height, 'operation_mode:', operationMode);
                 window.socket.emit('render_svg', {
                     svg: svgString,
                     target_width: projectorTarget.width,
-                    target_height: projectorTarget.height
+                    target_height: projectorTarget.height,
+                    operation_mode: operationMode
                 });
+                console.log('[scheduleRenderSend] render_svg event emitted with operation_mode:', operationMode);
                 try {
                     const anyHelpers = (elements || []).some(e => !!e.show_helper_lines);
                     window.socket.emit('set_projection_mode', { mode: anyHelpers ? 'svg' : 'frames' });
@@ -3401,11 +3463,11 @@ function validateCalibration() {
             });
         }
 
-        function scheduleRenderSendDebounced(rootSvgNode, delayMs = 80) {
+        function scheduleRenderSendDebounced(rootSvgNode, delayMs = 80, operationMode = false) {
             if (!window.socket) return;
             if (renderSendTimer) clearTimeout(renderSendTimer);
             renderSendTimer = setTimeout(() => {
-                scheduleRenderSend(rootSvgNode);
+                scheduleRenderSend(rootSvgNode, operationMode);
             }, delayMs);
         }
 

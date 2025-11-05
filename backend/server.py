@@ -6,6 +6,7 @@ Handles HTTP requests and real-time communication between control and projector 
 from flask import Flask, render_template, request, jsonify, send_from_directory
 from flask_socketio import SocketIO, emit, join_room, leave_room
 import os
+import sys
 import json
 from typing import Dict, Any
 import base64
@@ -15,6 +16,7 @@ import cairosvg
 from threading import Timer
 import re
 import logging
+from pathlib import Path
 
 from database import FileBasedDB
 from calibration import Calibrator
@@ -32,15 +34,44 @@ app.config['SECRET_KEY'] = 'press_projector_secret_key_2024'
 # Initialize SocketIO
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-# Configure logging to file
+# Configure logging to both file and console
 os.makedirs('debug', exist_ok=True)
-logging.basicConfig(
-    level=logging.INFO,
+log_format = '%(asctime)s %(levelname)s %(name)s %(message)s'
+
+# Configure root logger - remove existing handlers first
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+# Clear any existing handlers to avoid duplicates
+for handler in root_logger.handlers[:]:
+    root_logger.removeHandler(handler)
+
+# File handler
+file_handler = logging.FileHandler(
     filename=os.path.join('debug', 'press_projector.log'),
-    filemode='a',
-    format='%(asctime)s %(levelname)s %(name)s %(message)s'
+    mode='a'
 )
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(logging.Formatter(log_format))
+
+# Console handler (terminal output) - use sys.stdout explicitly
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(logging.Formatter(log_format))
+
+# Add handlers to root logger
+root_logger.addHandler(file_handler)
+root_logger.addHandler(console_handler)
+
+# Also configure Flask's logger
+flask_logger = logging.getLogger('werkzeug')
+flask_logger.setLevel(logging.INFO)
+for handler in flask_logger.handlers[:]:
+    flask_logger.removeHandler(handler)
+flask_logger.addHandler(file_handler)
+flask_logger.addHandler(console_handler)
+
 logger = logging.getLogger(__name__)
+logger.info("Logging configured - file and console output enabled")
 
 # Initialize components
 db = FileBasedDB()
@@ -186,12 +217,9 @@ def _svg_element(el: Dict[str, Any]) -> str:
         return f'<line x1="{x1_mm}" y1="{y1_mm}" x2="{x2_mm}" y2="{y2_mm}" class="element-shape"/>'
     return ''
 
-def pj_generate_svg(width: int = 1920, height: int = 1080, press_id: str = None, operation_mode: bool = False) -> str:
-    """Generate SVG for single press or multi-press operation mode.
-    SVG is now in press space (mm coordinates), not projector pixel space."""
-    if operation_mode:
-        # Generate SVG for both presses in operation mode
-        return _generate_multi_press_svg(width, height)
+def pj_generate_svg(width: int = 1920, height: int = 1080, press_id: str = None) -> str:
+    """Generate SVG for a single press (press space in mm).
+    Uses per-press operation layout if available; otherwise falls back to the global layout state."""
     
     # Single press mode
     # Ensure press_id is set (default to active press)
@@ -211,15 +239,26 @@ def pj_generate_svg(width: int = 1920, height: int = 1080, press_id: str = None,
     press_width_mm = calibrator.press_width_mm
     press_height_mm = calibrator.press_height_mm
     
+    # Prefer per-press operation layout if available
+    op_layout = _operation_state.get(press_id, {}).get('layout_data') if press_id else None
+    layout_src = op_layout or _layout_state
+    
     parts = []
-    rot = _layout_state['object_orientation']
+    rot = layout_src.get('object_orientation', 0.0)
     if rot:
         cx, cy = press_width_mm/2, press_height_mm/2
         parts.append(f'<g transform="rotate({rot} {cx} {cy})">')
     if _show_boundary_pattern:
         parts.append(f'<rect x="0" y="0" width="{press_width_mm}" height="{press_height_mm}" class="boundary"/>')
-    parts.append(_svg_center_lines(press_width_mm, press_height_mm))
-    for el in _layout_state['elements']:
+    # Render center lines from the chosen layout source
+    try:
+        prev_center = _layout_state.get('center_lines')
+        _layout_state['center_lines'] = (layout_src.get('center_lines') or {'horizontal': None, 'vertical': None})
+        parts.append(_svg_center_lines(press_width_mm, press_height_mm))
+    finally:
+        _layout_state['center_lines'] = prev_center
+    
+    for el in (layout_src.get('elements') or []):
         svg_el = _svg_element(el)
         if svg_el:
             parts.append(svg_el)
@@ -233,91 +272,6 @@ def pj_generate_svg(width: int = 1920, height: int = 1080, press_id: str = None,
     body = '\n'.join([p for p in parts if p])
     # SVG viewBox and dimensions in mm
     return f'<?xml version="1.0" encoding="UTF-8"?>\n<svg width="{press_width_mm}mm" height="{press_height_mm}mm" viewBox="0 0 {press_width_mm} {press_height_mm}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><defs><style>{styles}</style></defs>{body}</svg>'
-
-def _generate_multi_press_svg(width: int = 1920, height: int = 1080) -> str:
-    """Generate SVG for both presses in operation mode.
-    For operation mode, we need to render each press separately and combine them.
-    Since we can't easily combine two separate press spaces, we'll use a combined approach.
-    For now, we'll render each press in its own press space and the warping will handle positioning.
-    """
-    parts = []
-    styles = (
-        '.center-line{stroke:#f00;stroke-width:3;stroke-dasharray:10,5}'
-        '.boundary{stroke:#ff0;stroke-width:4;fill:rgba(255,255,0,0.2)}'
-        '.element-shape{stroke:#0ff;stroke-width:2;fill:none}'
-        '.press1-shape{stroke:#00ff00;stroke-width:2;fill:none}'
-        '.press2-shape{stroke:#ff00ff;stroke-width:2;fill:none}'
-    )
-    
-    # Find the maximum press dimensions to create a combined viewBox
-    max_width_mm = 0
-    max_height_mm = 0
-    press_data = []
-    
-    # Generate SVG for each press that has a scene loaded
-    for press_id in ['press1', 'press2']:
-        press_state = _operation_state.get(press_id, {})
-        if not press_state.get('layout_data'):
-            continue
-        
-        # Ensure calibration is loaded for this press
-        calibrator = get_calibrator(press_id)
-        if not calibrator.is_calibrated():
-            # Try to load calibration if not already loaded
-            load_press_calibration(press_id)
-            if not calibrator.is_calibrated():
-                logger.warning(f"Calibration not available for {press_id} in operation mode, skipping")
-                continue
-        
-        press_width_mm = calibrator.press_width_mm
-        press_height_mm = calibrator.press_height_mm
-        max_width_mm = max(max_width_mm, press_width_mm)
-        max_height_mm = max(max_height_mm, press_height_mm)
-        
-        layout_data = press_state['layout_data']
-        object_orientation = layout_data.get('object_orientation', 0.0)
-        center_lines = layout_data.get('center_lines', {})
-        elements = layout_data.get('elements', [])
-        
-        # Create a group for this press with a unique class
-        press_group = []
-        
-        # Add center lines for this press
-        if center_lines.get('horizontal') is not None:
-            y_mm = center_lines['horizontal']
-            press_group.append(f'<line x1="0" y1="{y_mm}" x2="{press_width_mm}" y2="{y_mm}" class="center-line"/>')
-        if center_lines.get('vertical') is not None:
-            x_mm = center_lines['vertical']
-            press_group.append(f'<line x1="{x_mm}" y1="0" x2="{x_mm}" y2="{press_height_mm}" class="center-line"/>')
-        
-        # Add elements for this press
-        for el in elements:
-            svg_el = _svg_element(el)
-            if svg_el:
-                # Add press-specific class
-                svg_el = svg_el.replace('class="element-shape"', f'class="element-shape {press_id}-shape"')
-                press_group.append(svg_el)
-        
-        # Wrap in rotation group if needed
-        if object_orientation and press_group:
-            cx, cy = press_width_mm/2, press_height_mm/2
-            wrapped = f'<g transform="rotate({object_orientation} {cx} {cy})">{chr(10).join(press_group)}</g>'
-            press_data.append((press_id, wrapped))
-        else:
-            press_data.append((press_id, '\n'.join(press_group)))
-    
-    # For operation mode with multiple presses, we need a strategy
-    # Since each press has its own calibration, we'll render them side by side
-    # or use a combined viewBox. For simplicity, let's use max dimensions.
-    if not press_data:
-        body = '<text x="50%" y="50%" fill="#fff" text-anchor="middle">No scenes loaded</text>'
-        max_width_mm = 1000  # Default fallback
-        max_height_mm = 1000
-    else:
-        body = '\n'.join([pd[1] for pd in press_data])
-    
-    # SVG viewBox and dimensions in mm (combined for both presses)
-    return f'<?xml version="1.0" encoding="UTF-8"?>\n<svg width="{max_width_mm}mm" height="{max_height_mm}mm" viewBox="0 0 {max_width_mm} {max_height_mm}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><defs><style>{styles}</style></defs>{body}</svg>'
 
 # Create a simple namespace to keep existing call sites
 projector = types.SimpleNamespace(
@@ -451,36 +405,64 @@ def adjust_upload_image_heights(svg_str: str) -> str:
     # Only process <image ...> tags
     return re.sub(r'<image\b[^>]*?>', replace_image_tag, svg_str)
 
-def save_control_svg(svg_content: str, filename: str = 'control_latest.svg'):
-    """Persist the latest control-screen SVG to disk, pretty-printed."""
+def save_debug_png(image: np.ndarray, filename: str) -> str:
+    """Save a PNG image to debug/renders with the given filename.
+
+    Args:
+        image: Image array (BGR or BGRA) to write as PNG
+        filename: Target filename, e.g. 'latest.png'
+
+    Returns:
+        The file path on success, or None if saving failed.
+    """
+    try:
+        debug_dir = os.path.join('debug', 'renders')
+        os.makedirs(debug_dir, exist_ok=True)
+        filepath = os.path.join(debug_dir, Path(filename).with_suffix('.png'))
+        ok = cv2.imwrite(filepath, image)
+        if not ok:
+            logger.warning("cv2.imwrite returned False for %s", filepath)
+            return None
+        return filepath
+
+    except Exception:
+        logger.exception("Failed to save debug PNG '%s'", filename)
+        return None
+
+def save_debug_svg(svg_content: str, filename: str = 'latest.svg') -> str:
+    """Save an SVG to debug/renders with the given filename.
+
+    Args:
+        svg_content: SVG content to save
+        filename: Target filename, e.g. 'latest.svg'
+
+    Returns:
+        The file path on success, or None if saving failed.
+    """
     try:
         import xml.dom.minidom
+        debug_dir = os.path.join('debug', 'renders')
+        os.makedirs(debug_dir, exist_ok=True)
+        filepath = os.path.join(debug_dir, Path(filename).with_suffix('.svg'))
+
+        # Parse and pretty-print the SVG
         dom = xml.dom.minidom.parseString(svg_content.encode('utf-8'))
         pretty_svg = dom.toprettyxml(indent="  ", encoding=None)
 
-        # Primary location
-        debug_dir = os.path.join('debug', 'renders')
-        os.makedirs(debug_dir, exist_ok=True)
-        with open(os.path.join(debug_dir, filename), 'w', encoding='utf-8') as f:
+        with open(filepath, 'w', encoding='utf-8') as f:
             f.write(pretty_svg)
 
-        # Legacy location for compatibility with existing tooling/views
-        legacy_dir = os.path.join('config', 'renders')
-        try:
-            os.makedirs(legacy_dir, exist_ok=True)
-            with open(os.path.join(legacy_dir, filename), 'w', encoding='utf-8') as f2:
-                f2.write(pretty_svg)
-        except Exception:
-            pass
+        return filepath
     except Exception as e:
-        logger.exception("Failed to save control SVG")
+        logger.exception("Failed to save SVG to disk: %s", e)
+        return None
+
 
 def send_layout_update_to_control(layout_data: Dict[str, Any], svg_content: str) -> None:
     socketio.emit('layout_updated', {
         'layout': layout_data,
         'svg': svg_content
     }, room='control')
-
 
 def broadcast_layout_update():
     """Broadcast current layout to all projectors."""
@@ -496,7 +478,7 @@ def broadcast_layout_update():
             # Operation mode: generate multi-press SVG
             svg_content = projector.generate_svg(operation_mode=True)
             try:
-                save_control_svg(svg_content)
+                save_debug_svg(svg_content, 'operation_latest.svg')
             except Exception:
                 pass
             # Send to control for preview
@@ -510,7 +492,7 @@ def broadcast_layout_update():
             layout_data = projector.get_layout_data()
             svg_content = projector.generate_svg()
             try:
-                save_control_svg(svg_content)
+                save_debug_svg(svg_content, 'control_latest.svg')
             except Exception:
                 pass
             send_layout_update_to_control(layout_data, svg_content)
@@ -911,7 +893,7 @@ def update_layout():
         # Generate and send updated SVG
         svg_content = projector.generate_svg()
         try:
-            save_control_svg(svg_content)
+            save_debug_svg(svg_content, 'layout_update_latest.svg')
         except Exception:
             pass
         # Notify control UI only; projector consumes rasterized frames
@@ -1395,7 +1377,7 @@ def handle_request_update():
         if operation_mode_active:
             svg_content = projector.generate_svg(operation_mode=True)
             try:
-                save_control_svg(svg_content)
+                save_debug_svg(svg_content, 'control_latest.svg')
             except Exception:
                 pass
             emit('layout_updated', {
@@ -1407,7 +1389,7 @@ def handle_request_update():
             layout_data = projector.get_layout_data()
             svg_content = projector.generate_svg()
             try:
-                save_control_svg(svg_content)
+                save_debug_svg(svg_content, 'request_update_latest.svg')
             except Exception:
                 pass
             send_layout_update_to_control(layout_data, svg_content)
@@ -1439,7 +1421,7 @@ def handle_layout_update(data):
         # Generate and send updated SVG
         svg_content = projector.generate_svg()
         try:
-            save_control_svg(svg_content)
+            save_debug_svg(svg_content, 'layout_update_latest.svg')
         except Exception:
             pass
         # Notify control UI only
@@ -1544,6 +1526,8 @@ def handle_hide_validation_pattern():
 def handle_start_calibration(data):
     """Handle start of interactive calibration."""
     try:
+        press_id = data.get('press_id', 'unknown')
+        logger.info(f"Starting calibration for press: {press_id}")
         emit('start_calibration', data, room='projector')
     except Exception as e:
         logger.exception("Error starting calibration")
@@ -1630,6 +1614,7 @@ def _render_press_scene(press_id: str, svg_str: str, output_width: int, output_h
     Returns:
         Warped image as numpy array (BGRA), or None if rendering failed
     """
+
     # Ensure calibration is loaded
     calibrator = get_calibrator(press_id)
     if not calibrator.is_calibrated():
@@ -1654,6 +1639,7 @@ def _render_press_scene(press_id: str, svg_str: str, output_width: int, output_h
         target_w = int(calibrator.press_width_mm * 10)  # 10 pixels per mm
         target_h = int(calibrator.press_height_mm * 10)
     
+
     # Rasterize SVG at press-space resolution
     png_bytes = cairosvg.svg2png(bytestring=svg_processed.encode('utf-8'), 
                                   output_width=target_w, 
@@ -1665,6 +1651,25 @@ def _render_press_scene(press_id: str, svg_str: str, output_width: int, output_h
     if img is None:
         logger.warning(f"Failed to decode PNG for {press_id}")
         return None
+
+    save_debug_png(img, 'latest_raw.png')
+    
+    
+    # # Ensure image has alpha channel (BGRA)
+    if img.shape[2] == 3:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
+    
+    # Composite image onto black background (handle transparent pixels)
+    # Create black background
+    black_bg = np.zeros((img.shape[0], img.shape[1], 4), dtype=np.uint8)
+    black_bg[:, :, 3] = 255  # Opaque black
+    
+    # Composite: blend image onto black background
+    if img.shape[2] == 4:
+        alpha = img[:, :, 3:4] / 255.0
+        img_composited = (img[:, :, :4] * alpha + black_bg * (1 - alpha)).astype(np.uint8)
+    else:
+        img_composited = img
     
     # Apply perspective transformation to map from press space to projector space
     if not debug_bypass_warp and calibrator.is_calibrated():
@@ -1673,19 +1678,22 @@ def _render_press_scene(press_id: str, svg_str: str, output_width: int, output_h
         # We need inverse: map from press space to projector pixels
         H_inv = np.linalg.inv(H)
         # Apply perspective transformation
-        warped = cv2.warpPerspective(img, H_inv, (output_width, output_height), 
+        # Use BORDER_CONSTANT with black to fill areas outside warped region
+        warped = cv2.warpPerspective(img_composited, H_inv, (output_width, output_height), 
                                       flags=cv2.INTER_CUBIC, 
-                                      borderMode=cv2.BORDER_TRANSPARENT,
-                                      borderValue=(0, 0, 0, 0))
+                                      borderMode=cv2.BORDER_CONSTANT,
+                                      borderValue=(0, 0, 0, 255))
         logger.debug(f"Applied perspective transformation for {press_id}")
     else:
-        # No calibration or debug bypass: just resize
-        if img.shape[1] != output_width or img.shape[0] != output_height:
-            warped = cv2.resize(img, (output_width, output_height), interpolation=cv2.INTER_LINEAR)
-        else:
-            warped = img
-        if not calibrator.is_calibrated():
-            logger.warning(f"Calibration not available for {press_id}, rendering without perspective transformation")
+        raise NotImplementedError("Debug bypass warp is not implemented")
+    # else:
+    #     # No calibration or debug bypass: just resize
+    #     if img_composited.shape[1] != output_width or img_composited.shape[0] != output_height:
+    #         warped = cv2.resize(img_composited, (output_width, output_height), interpolation=cv2.INTER_LINEAR)
+    #     else:
+    #         warped = img_composited
+    #     if not calibrator.is_calibrated():
+    #         logger.warning(f"Calibration not available for {press_id}, rendering without perspective transformation")
     
     return warped
 
@@ -1695,64 +1703,42 @@ def _perform_render_svg(data):
     svg_str = data.get('svg', '')
     if not svg_str:
         return
-    
+        
     # Check if operation mode is active
-    operation_mode = data.get('operation_mode', False)
-    if not operation_mode:
-        # Check operation state to determine if we should use operation mode
-        operation_mode = any(
+    # Only use fallback if operation_mode key is not present (None means not set)
+    # If explicitly set to False, respect that and don't override
+    if 'operation_mode' in data:
+        operation_mode = bool(data['operation_mode'])
+        logger.info(f"[_perform_render_svg] Received explicit operation_mode from data: {operation_mode}")
+    else:
+        # Fallback: Check operation state if operation_mode not explicitly set
+        operation_mode_from_state = any(
             _operation_state.get(press_id, {}).get('layout_data')
             for press_id in ['press1', 'press2']
         )
+        operation_mode = operation_mode_from_state
+        logger.info(f"[_perform_render_svg] operation_mode not in data, checking state: {operation_mode_from_state}")
+        
+    logger.info(f"[_perform_render_svg] Final operation_mode: {operation_mode}")
     
-    # For operation mode, we'll render each press separately later
-    # For now, just process the SVG string if provided (for control preview)
-    if operation_mode:
-        # Generate multi-press SVG for control preview only
-        svg_str = projector.generate_svg(
-            width=projector_resolution['width'],
-            height=projector_resolution['height'],
-            operation_mode=True
-        )
-        # Process SVG for control preview (not for projector rendering)
-        svg_processed = adjust_upload_image_heights(svg_str)
-        svg_processed = inline_upload_image_links(svg_processed)
-    else:
-        # Normal mode: process SVG as before
-        svg_processed = adjust_upload_image_heights(svg_str)
-        svg_processed = inline_upload_image_links(svg_processed)
-
-    # Save SVG to disk before rasterizing (with pretty printing)
-    try:
-        import xml.dom.minidom
-        debug_dir = os.path.join('debug', 'renders')
-        os.makedirs(debug_dir, exist_ok=True)
-        svg_filepath = os.path.join(debug_dir, 'latest.svg')
-
-        # Parse and pretty-print the SVG
-        dom = xml.dom.minidom.parseString(svg_processed.encode('utf-8'))
-        pretty_svg = dom.toprettyxml(indent="  ", encoding=None)
-
-        with open(svg_filepath, 'w', encoding='utf-8') as f:
-            f.write(pretty_svg)
-    except Exception as e:
-        logger.exception("Failed to save SVG to disk")
-
     out_w, out_h = projector_resolution['width'], projector_resolution['height']
 
     # Render based on mode
     if not operation_mode:
-        # Normal mode: render single press scene
-        warped = _render_press_scene(_active_press, svg_processed, out_w, out_h)
-        if warped is None:
-            return
+        # Normal mode: process SVG and render single press scene
+        svg_processed = adjust_upload_image_heights(svg_str)
+        svg_processed = inline_upload_image_links(svg_processed)
         
-        # Save the unwarped press-space image for debugging (we'd need to capture it before warping)
-        # For now, just save the warped image
+        # Save SVG to disk before rasterizing (with pretty printing)
+
+        
+        # Render single press scene
+        projector_image = _render_press_scene(_active_press, svg_processed, out_w, out_h)
+        assert projector_image is not None
     else:
         # Operation mode: Render each press separately, apply perspective transformation, then composite
-        # Create a blank canvas for compositing
-        warped = np.zeros((out_h, out_w, 4), dtype=np.uint8)
+        # Create a blank black canvas for compositing (opaque black background)
+        projector_image = None # np.zeros((out_h, out_w, 3), dtype=np.uint8)
         
         # Process each press that has a scene loaded
         for press_id in ['press1', 'press2']:
@@ -1761,50 +1747,25 @@ def _perform_render_svg(data):
                 continue
             
             # Generate SVG for this press only
-            press_svg = pj_generate_svg(press_id=press_id, operation_mode=False)
+            press_svg = pj_generate_svg(press_id=press_id)
             
             # Render and warp this press's scene
             press_warped = _render_press_scene(press_id, press_svg, out_w, out_h)
-            if press_warped is None:
-                continue
-            
-            # Composite: blend this press's warped image onto the canvas
-            # Use alpha blending if both images have alpha channel
-            if press_warped.shape[2] == 4 and warped.shape[2] == 4:
-                # Alpha compositing: new = src + (1 - src_alpha) * dst
-                alpha = press_warped[:, :, 3:4] / 255.0
-                warped = (press_warped[:, :, :4] * alpha + warped[:, :, :4] * (1 - alpha)).astype(np.uint8)
-            elif press_warped.shape[2] == 4:
-                # Press has alpha, canvas doesn't - convert canvas to RGBA
-                warped_rgb = cv2.cvtColor(warped, cv2.COLOR_BGRA2BGR) if warped.shape[2] == 4 else warped
-                warped = cv2.cvtColor(warped_rgb, cv2.COLOR_BGR2BGRA)
-                alpha = press_warped[:, :, 3:4] / 255.0
-                warped = (press_warped[:, :, :4] * alpha + warped[:, :, :4] * (1 - alpha)).astype(np.uint8)
+            assert press_warped is not None
+            if projector_image is None:
+                projector_image = press_warped
             else:
-                # Simple overlay (no alpha)
-                mask = np.any(press_warped > 0, axis=2)
-                warped[mask] = press_warped[mask] if warped.shape[2] == press_warped.shape[2] else cv2.cvtColor(press_warped, cv2.COLOR_BGR2BGRA)[mask]
-            
-            logger.debug(f"Composited warped image for {press_id} in operation mode")
-        
-        # If no presses were processed, create a blank image
-        if not any(_operation_state.get(press_id, {}).get('layout_data') for press_id in ['press1', 'press2']):
-            warped = np.zeros((out_h, out_w, 4), dtype=np.uint8)
-            logger.warning("Operation mode: No scenes loaded, rendering blank image")
+                projector_image = cv2.add(projector_image, press_warped)
+        logger.debug(f"Composited warped image for {press_id} in operation mode")
+    
 
-    # Write debug images to disk (only keep the latest)
-    try:
-        debug_dir = os.path.join('debug', 'renders')
-        os.makedirs(debug_dir, exist_ok=True)
-        cv2.imwrite(os.path.join(debug_dir, 'latest.png'), warped)
-    except Exception as e:
-        logger.exception("Failed to save debug render images")
-
-    ok, enc = cv2.imencode('.png', warped)
+    ok, enc = cv2.imencode('.png', projector_image)
     if not ok:
         return
     b64 = base64.b64encode(enc.tobytes()).decode('ascii')
-    emit('projector_frame', {'image': b64}, room='projector')
+    operation_mode_final = bool(operation_mode)
+    logger.info(f"[_perform_render_svg] Emitting projector_frame with operation_mode: {operation_mode_final}")
+    emit('projector_frame', {'image': b64, 'operation_mode': operation_mode_final}, room='projector')
     try:
         emit('set_projection_mode', { 'mode': 'frames' }, room='projector')
     except Exception:
@@ -1814,18 +1775,22 @@ def _perform_render_svg(data):
 @socketio.on('render_svg')
 def handle_render_svg(data):
     """Coalesce rapid render requests: keep only the newest while rendering."""
+    logger.info(f"[handle_render_svg] Received render_svg event, data keys: {list(data.keys()) if isinstance(data, dict) else 'not a dict'}")
     global is_rendering, pending_render
     try:
         # If a render is in progress, replace any pending payload with the newest and return
         if is_rendering:
+            logger.info("[handle_render_svg] Render already in progress, queuing request")
             pending_render = data
             return
 
         # Start rendering and process the newest pending payload after each render
+        logger.info("[handle_render_svg] Starting render process")
         is_rendering = True
         current = data
         while current is not None:
             try:
+                logger.info(f"[handle_render_svg] Processing render, svg length: {len(current.get('svg', ''))}")
                 _perform_render_svg(current)
             except Exception as e:
                 logger.exception("Error rendering SVG")
@@ -1834,18 +1799,28 @@ def handle_render_svg(data):
             pending_render = None
     finally:
         is_rendering = False
+        logger.info("[handle_render_svg] Render process completed")
 
 
 if __name__ == '__main__':
+    logger.info("=" * 60)
+    logger.info("Press Projector System - Starting Server")
+    logger.info("=" * 60)
+    
     # Load existing calibrations for all presses if available
     for press_id in ['press1', 'press2']:
         calibration_data = db.load_press_calibration(press_id)
         if calibration_data:
             load_press_calibration(press_id)
+            logger.info(f"Loaded calibration for {press_id}")
     
     # Start periodic updates
     start_periodic_updates()
+    logger.info("Periodic updates started")
     
     # Start server
+    logger.info("Starting server on 0.0.0.0:5000")
+    logger.info("Control interface: http://0.0.0.0:5000/control")
+    logger.info("Projector view: http://0.0.0.0:5000/projector")
     
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True, log_output=True)

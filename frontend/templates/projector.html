@@ -166,6 +166,9 @@
     </style>
 </head>
 <body>
+    <div id="modeBadge" style="position: fixed; top: 8px; left: 8px; z-index: 9999; background: rgba(0,0,0,0.6); color: #fff; padding: 4px 8px; border-radius: 4px; font-family: sans-serif; font-size: 14px; letter-spacing: 0.5px;">
+        LAYOUT
+    </div>
     <div class="status-bar">
         <div>
             <span class="status-indicator" id="connectionStatus"></span>
@@ -314,6 +317,14 @@
                 try { if (noDataTimer) { clearTimeout(noDataTimer); noDataTimer = null; } } catch (e) {}
                 lastFrameAt = Date.now();
                 preferFrames = true;
+                // Update mode badge if backend provided the flag
+                try {
+                    const badge = document.getElementById('modeBadge');
+                    if (badge && typeof data.operation_mode === 'boolean') {
+                        badge.textContent = data.operation_mode ? 'OPERATION' : 'LAYOUT';
+                        badge.style.display = 'block';
+                    }
+                } catch (e) {}
                 
             });
 
@@ -334,8 +345,21 @@
                 } catch (e) {}
             });
 
+            // Optional: receive explicit operation mode change events
+            socket.on('operation_mode_changed', function(data) {
+                try {
+                    const badge = document.getElementById('modeBadge');
+                    const effective = (data && typeof data.operation_mode === 'boolean') ? data.operation_mode : null;
+                    if (badge && effective !== null) {
+                        badge.textContent = effective ? 'OPERATION' : 'LAYOUT';
+                        badge.style.display = 'block';
+                    }
+                } catch (e) {}
+            });
+
             socket.on('start_calibration', function(data) {
                 console.log('Starting calibration:', data);
+                console.log('Calibrating press:', data.press_id || 'unknown');
                 console.log('Received points:', data.points);
                 calibrationMode = true;
                 preferFrames = false;
