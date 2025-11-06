@@ -2,8 +2,8 @@
   "layout": {
     "object_orientation": 0,
     "center_lines": {
-      "horizontal": 102,
-      "vertical": 117
+      "horizontal": 150,
+      "vertical": 150
     },
     "elements": [
       {
@@ -11,68 +11,60 @@
         "font_size": 50,
         "label": "Temp",
         "position": [
-          6.278327941894531,
-          45.109710693359375
+          -144.75445652008057,
+          -147.47237467765808
         ],
         "rotation": 0,
+        "show_helper_lines": false,
         "text": "ASD",
-        "type": "text",
-        "show_helper_lines": false
+        "type": "text"
       },
       {
         "color": "#00ffff",
         "height": 30,
         "label": "FrontTop",
         "position": [
-          117.58129119873047,
-          71.49295043945312
+          37.30000000000001,
+          27.5
         ],
         "rotation": 0,
         "type": "rectangle",
-        "width": 50
+        "width": 50,
+        "show_helper_lines": false,
+        "line_width": 4
       },
       {
         "end": [
-          124.52505493164062,
-          -16.65777587890625
+          91.5,
+          -64.7
         ],
         "label": "Line 4",
         "start": [
-          74.52505493164062,
-          -66.65777587890625
+          41.5,
+          -114.7
         ],
-        "type": "line"
+        "type": "line",
+        "color": "#00ffff",
+        "show_helper_lines": false,
+        "line_width": 5
       },
       {
         "color": "#00ffff",
-        "height": 69.12028725314184,
-        "image_url": "http://127.0.0.1:5000/uploads/ubuntu.png",
-        "label": "Image 5",
-        "opacity": 0.57,
+        "height": 90.09404388714734,
+        "image_url": "http://localhost:5670/uploads/ubuntu_2.png",
+        "label": "Image 4",
+        "opacity": 1,
         "position": [
-          117.58696746826172,
-          119.45179748535156
+          -129.60000038146973,
+          33.600006103515625
         ],
         "rotation": 0,
+        "show_helper_lines": false,
         "type": "image",
-        "width": 100
-      },
-      {
-        "color": "#00ffff",
-        "height": 13.036020583190396,
-        "image_url": "http://127.0.0.1:5000/uploads/ubuntu2.png",
-        "label": "Image 6",
-        "opacity": 0.5,
-        "position": [
-          116.4804916381836,
-          30.228565216064453
-        ],
-        "rotation": 0,
-        "type": "image",
-        "width": 40
+        "width": 120
       }
     ]
   },
   "config_name": "asd",
-  "timestamp": "2025-11-05T09:31:00.575400"
+  "timestamp": "2025-11-06T15:48:48.173700"
 }

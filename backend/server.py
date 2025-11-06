@@ -265,7 +265,7 @@ def pj_generate_svg(width: int = 1920, height: int = 1080, press_id: str = None)
     if rot:
         parts.append('</g>')
     styles = (
-        '.center-line{stroke:#f00;stroke-width:3;stroke-dasharray:10,5}'
+        '.center-line{stroke:#f00;stroke-width:5;stroke-dasharray:10,5}'
         '.boundary{stroke:#ff0;stroke-width:4;fill:rgba(255,255,0,0.2)}'
         '.element-shape{stroke:#0ff;stroke-width:2;fill:none}'
     )

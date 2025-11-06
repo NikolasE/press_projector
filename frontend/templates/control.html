@@ -657,6 +657,13 @@
                     <input type="text" id="eeRadius">
                 </div>
             </div>
+            <!-- Line width field for line, rectangle, and circle -->
+            <div id="eeLineWidthField" style="display:none;">
+                <div class="form-group" style="margin-bottom:0.75rem;">
+                    <label>Line Width (mm)</label>
+                    <input type="text" id="eeLineWidth">
+                </div>
+            </div>
             <div id="eeTextFields" style="display:none;">
                 <div class="form-group" style="margin-bottom:0.75rem;">
                     <label>Font size (mm)</label>
@@ -1045,6 +1052,7 @@
             enforceNumericInput(document.getElementById('eeHeight'), { allowNegative: false, allowDecimal: true });
             enforceNumericInput(document.getElementById('eeRadius'), { allowNegative: false, allowDecimal: true });
             enforceNumericInput(document.getElementById('eeTextSize'), { allowNegative: false, allowDecimal: true });
+            enforceNumericInput(document.getElementById('eeLineWidth'), { allowNegative: false, allowDecimal: true });
         }
 
         function updateConnectionStatus(connected) {
@@ -2252,7 +2260,8 @@ function validateCalibration() {
                 type: 'line',
                 start: [0, 0],
                 end: [50, 50],
-                label: 'Line ' + (elements.length + 1)
+                label: 'Line ' + (elements.length + 1),
+                line_width: 5
             };
             elements.push(element);
             updateElementList();
@@ -2273,7 +2282,8 @@ function validateCalibration() {
                 width: w,
                 height: h,
                 rotation: 0,
-                label: 'Rectangle ' + (elements.length + 1)
+                label: 'Rectangle ' + (elements.length + 1),
+                line_width: 5
             };
             elements.push(element);
             updateElementList();
@@ -2291,7 +2301,8 @@ function validateCalibration() {
                 type: 'circle',
                 position: [cx, cy],
                 radius: r,
-                label: 'Circle ' + (elements.length + 1)
+                label: 'Circle ' + (elements.length + 1),
+                line_width: 5
             };
             elements.push(element);
             updateElementList();
@@ -2508,6 +2519,7 @@ function validateCalibration() {
             const circleFields = document.getElementById('eeCircleFields');
             const textFields = document.getElementById('eeTextFields');
             const imageFields = document.getElementById('eeImageFields');
+            const lineWidthField = document.getElementById('eeLineWidthField');
 
             label.value = element.label || '';
             color.value = normalizeColorForInput(element.color || '#00ffff');
@@ -2523,6 +2535,8 @@ function validateCalibration() {
             circleFields.style.display = element.type === 'circle' ? 'block' : 'none';
             textFields.style.display = element.type === 'text' ? 'block' : 'none';
             imageFields.style.display = element.type === 'image' ? 'block' : 'none';
+            // Show line-width field for line, rectangle, and circle
+            lineWidthField.style.display = ['line', 'rectangle', 'circle'].includes(element.type) ? 'block' : 'none';
             
             // Populate common fields based on element type
             if (element.type === 'rectangle' || element.type === 'circle' || element.type === 'text' || element.type === 'image') {
@@ -2584,6 +2598,12 @@ function validateCalibration() {
                         numeric.onchange = (e) => syncFromNumeric(e.target.value);
                     }
                 } catch (e) {}
+            }
+            
+            // Populate line-width field for line, rectangle, and circle
+            if (['line', 'rectangle', 'circle'].includes(element.type)) {
+                const lineWidth = element.line_width != null ? element.line_width : 5;
+                document.getElementById('eeLineWidth').value = lineWidth.toFixed(2);
             }
 
             // live color preview while picker is open
@@ -2675,8 +2695,16 @@ function validateCalibration() {
                 // Save opacity (0..1) from UI (0..100)
                 try {
                     const pct = Number(document.getElementById('eeImageOpacity').value);
-                    if (!Number.isNaN(pct)) element.opacity = Math.max(0, Math.min(100, pct)) / 100;
+                    if (!Number.isNaN(pct))                     element.opacity = Math.max(0, Math.min(100, pct)) / 100;
                 } catch (e) {}
+            }
+            
+            // Save line-width for line, rectangle, and circle
+            if (['line', 'rectangle', 'circle'].includes(element.type)) {
+                const lw = parseFloat(document.getElementById('eeLineWidth').value);
+                if (!Number.isNaN(lw) && lw > 0) {
+                    element.line_width = lw;
+                }
             }
 
             updateElementList();
@@ -3113,11 +3141,11 @@ function validateCalibration() {
             const over = Math.max(pressW, pressH) * 2;
             if (currentLayout.center_lines?.horizontal != null) {
                 const y = currentLayout.center_lines.horizontal;
-                rotGroup.line(-over, y, pressW + over, y).stroke({ color: '#ff0000', width: 0.6, dasharray: '8,4' });
+                rotGroup.line(-over, y, pressW + over, y).stroke({ color: '#ff0000', width: 5, dasharray: '8,4' });
             }
             if (currentLayout.center_lines?.vertical != null) {
                 const x = currentLayout.center_lines.vertical;
-                rotGroup.line(x, -over, x, pressH + over).stroke({ color: '#ff0000', width: 0.6, dasharray: '8,4' });
+                rotGroup.line(x, -over, x, pressH + over).stroke({ color: '#ff0000', width: 5, dasharray: '8,4' });
             }
 
             // Helper lines through element centers (per-element toggle)
@@ -3184,7 +3212,7 @@ function validateCalibration() {
                     const lg = g.group();
                     lg.css('cursor', 'grab');
                     // Visible extended line
-                    lg.line(dx1, dy1, dx2, dy2).stroke({ color: el.color || '#0ff', width: 0.6, dasharray: '5,5' });
+                    lg.line(dx1, dy1, dx2, dy2).stroke({ color: el.color || '#0ff', width: el.line_width || 5, dasharray: '5,5' });
                     // Transparent, thicker hit line for easier dragging
                     lg.line(dx1, dy1, dx2, dy2)
                         .stroke({ color: '#000', width: 6, opacity: 0.001 })
@@ -3230,7 +3258,7 @@ function validateCalibration() {
                     const r = el.rotation || 0;
                     const rr = g.group();
                     if (r) rr.rotate(r, x + w / 2, y + h / 2);
-                    const rect = rr.rect(w, h).move(x, y).fill('none').stroke({ color: el.color || '#0ff', width: 0.6 });
+                    const rect = rr.rect(w, h).move(x, y).fill('none').stroke({ color: el.color || '#0ff', width: el.line_width || 5 });
                     if (el.label) {
                         const txt = rr.text(el.label).font({ size: 6, anchor: 'middle' }).fill('#fff').center(x + w / 2, y + h / 2);
                         txt.node.setAttribute('dominant-baseline', 'middle');
@@ -3254,7 +3282,7 @@ function validateCalibration() {
                     const [x, y] = el.position || [0, 0];
                     const r = el.radius || 5;
                     const cg = g.group();
-                    const cc = cg.circle(r * 2).move(x - r, y - r).fill('none').stroke({ color: el.color || '#0ff', width: 0.6 });
+                    const cc = cg.circle(r * 2).move(x - r, y - r).fill('none').stroke({ color: el.color || '#0ff', width: el.line_width || 5 });
                     if (el.label) cg.text(el.label).font({ size: 6 }).fill('#fff').move(x, y + 2).attr('text-anchor', 'middle');
                     if (typeof cg.draggable === 'function') {
                         cg.css('cursor', 'grab');

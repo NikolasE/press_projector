@@ -287,10 +287,11 @@ class DrawingElementManager {
     lineToSVG(element) {
         const start = this.converter.pressToProjector(element.start[0], element.start[1]);
         const end = this.converter.pressToProjector(element.end[0], element.end[1]);
+        const lineWidthPx = element.line_width != null ? this.converter.mmToPixels(element.line_width) : 2;
         
         const line = SVGUtils.createLine(start.x, start.y, end.x, end.y, {
             stroke: (element.color || '#00ff00'),
-            'stroke-width': 2,
+            'stroke-width': lineWidthPx,
             'stroke-dasharray': '5,5'
         });
 
@@ -319,10 +320,11 @@ class DrawingElementManager {
         const pos = this.converter.pressToProjector(element.position[0], element.position[1]);
         const width = this.converter.mmToPixels(element.width);
         const height = this.converter.mmToPixels(element.height);
+        const lineWidthPx = element.line_width != null ? this.converter.mmToPixels(element.line_width) : 2;
         
         const rect = SVGUtils.createRectangle(pos.x, pos.y, width, height, {
             stroke: (element.color || '#00ffff'),
-            'stroke-width': 2,
+            'stroke-width': lineWidthPx,
             fill: 'none'
         });
 
@@ -350,10 +352,11 @@ class DrawingElementManager {
     circleToSVG(element) {
         const pos = this.converter.pressToProjector(element.position[0], element.position[1]);
         const radius = this.converter.mmToPixels(element.radius);
+        const lineWidthPx = element.line_width != null ? this.converter.mmToPixels(element.line_width) : 2;
         
         const circle = SVGUtils.createCircle(pos.x, pos.y, radius, {
             stroke: (element.color || '#00ffff'),
-            'stroke-width': 2,
+            'stroke-width': lineWidthPx,
             fill: 'none'
         });
 
