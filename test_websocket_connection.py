@@ -17,7 +17,7 @@ import os
 class WebSocketConnectionTest:
     """Test WebSocket connection functionality."""
     
-    def __init__(self, base_url='http://localhost:5000'):
+    def __init__(self, base_url='http://localhost:5670'):
         self.base_url = base_url
         self.server_process = None
         self.server_started = False
@@ -47,7 +47,7 @@ class WebSocketConnectionTest:
             
             # Try to start the actual server
             self.server_process = subprocess.Popen(
-                [sys.executable, '-m', 'flask', 'run', '--host', '0.0.0.0', '--port', '5000'],
+                [sys.executable, '-m', 'flask', 'run', '--host', '0.0.0.0', '--port', '5670'],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 env={**os.environ, 'FLASK_APP': 'backend/server.py'},
@@ -312,8 +312,8 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description='Test WebSocket connection to Press Projector System')
-    parser.add_argument('--url', default='http://localhost:5000', 
-                       help='Base URL of the server (default: http://localhost:5000)')
+    parser.add_argument('--url', default='http://localhost:5670', 
+                       help='Base URL of the server (default: http://localhost:5670)')
     parser.add_argument('--start-server', action='store_true',
                        help='Start the server before testing (may not work in all environments)')
     

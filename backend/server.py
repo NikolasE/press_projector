@@ -1819,8 +1819,8 @@ if __name__ == '__main__':
     logger.info("Periodic updates started")
     
     # Start server
-    logger.info("Starting server on 0.0.0.0:5000")
-    logger.info("Control interface: http://0.0.0.0:5000/control")
-    logger.info("Projector view: http://0.0.0.0:5000/projector")
+    logger.info("Starting server on 0.0.0.0:5670")
+    logger.info("Control interface: http://0.0.0.0:5670/control")
+    logger.info("Projector view: http://0.0.0.0:5670/projector")
     
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True, log_output=True)
+    socketio.run(app, host='0.0.0.0', port=5670, debug=True, log_output=True)

@@ -25,7 +25,7 @@ def setup_environment():
         default_settings = {
             "server": {
                 "host": "0.0.0.0",
-                "port": 5000,
+                "port": 5670,
                 "debug": False
             },
             "projector": {
@@ -47,7 +47,7 @@ def main():
     """Main startup function."""
     parser = argparse.ArgumentParser(description='Press Projector System Server')
     parser.add_argument('--host', default='0.0.0.0', help='Host to bind to (default: 0.0.0.0)')
-    parser.add_argument('--port', type=int, default=5000, help='Port to bind to (default: 5000)')
+    parser.add_argument('--port', type=int, default=5670, help='Port to bind to (default: 5670)')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
     parser.add_argument('--setup-only', action='store_true', help='Only setup environment, don\'t start server')
     
