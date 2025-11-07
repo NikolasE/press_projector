@@ -8,7 +8,8 @@ from flask_socketio import SocketIO, emit, join_room, leave_room
 import os
 import sys
 import json
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+from enum import Enum
 import base64
 import numpy as np
 import cv2
@@ -89,11 +90,40 @@ _layout_state = {
 }
 _show_boundary_pattern = False
 
+# Operation mode enumeration
+class OperationMode(str, Enum):
+    SCENE_SETUP = 'scene_setup'
+    PRODUCTION = 'production'
+
+
 # Operation mode state - scenes loaded per press
 _operation_state = {
     'press1': {'scene_name': None, 'layout_data': None},
     'press2': {'scene_name': None, 'layout_data': None}
 }
+
+
+def _determine_operation_mode_from_state() -> OperationMode:
+    operation_mode_active = any(
+        _operation_state.get(press_id, {}).get('layout_data')
+        for press_id in ['press1', 'press2']
+    )
+    return OperationMode.PRODUCTION if operation_mode_active else OperationMode.SCENE_SETUP
+
+
+def _parse_operation_mode(value: Any) -> Optional[OperationMode]:
+    if isinstance(value, OperationMode):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        for mode in OperationMode:
+            if normalized == mode.value:
+                return mode
+        return None
+    if isinstance(value, bool):
+        # Backwards compatibility with legacy boolean payloads
+        return OperationMode.PRODUCTION if value else OperationMode.SCENE_SETUP
+    return None
 
 # Press management functions
 def get_active_press() -> str:
@@ -187,8 +217,8 @@ def _svg_element(el: Dict[str, Any]) -> str:
         return f'<circle cx="{x_mm}" cy="{y_mm}" r="{r_mm}" class="element-shape" fill="none"/>'
     if t == 'text':
         x_mm, y_mm = (el.get('position') or [0,0])
-        fs = el.get('font_size', 16)
-        color = el.get('color', '#ffffff')
+        fs = el.get('font_size', 10)
+        color = el.get('color', '#0ff')
         rot = el.get('rotation', 0)
         txt = (el.get('text') or '').replace('&','&amp;')
         if rot:
@@ -217,7 +247,10 @@ def _svg_element(el: Dict[str, Any]) -> str:
         return f'<line x1="{x1_mm}" y1="{y1_mm}" x2="{x2_mm}" y2="{y2_mm}" class="element-shape"/>'
     return ''
 
-def pj_generate_svg(width: int = 1920, height: int = 1080, press_id: str = None) -> str:
+def pj_generate_svg(width: int = 1920,
+                    height: int = 1080,
+                    press_id: str = None,
+                    operation_mode: OperationMode = OperationMode.SCENE_SETUP) -> str:
     """Generate SVG for a single press (press space in mm).
     Uses per-press operation layout if available; otherwise falls back to the global layout state."""
     
@@ -239,8 +272,10 @@ def pj_generate_svg(width: int = 1920, height: int = 1080, press_id: str = None)
     press_width_mm = calibrator.press_width_mm
     press_height_mm = calibrator.press_height_mm
     
-    # Prefer per-press operation layout if available
-    op_layout = _operation_state.get(press_id, {}).get('layout_data') if press_id else None
+    # Prefer per-press operation layout if available in production mode
+    op_layout = None
+    if operation_mode is OperationMode.PRODUCTION and press_id:
+        op_layout = _operation_state.get(press_id, {}).get('layout_data')
     layout_src = op_layout or _layout_state
     
     parts = []
@@ -458,25 +493,24 @@ def save_debug_svg(svg_content: str, filename: str = 'latest.svg') -> str:
         return None
 
 
-def send_layout_update_to_control(layout_data: Dict[str, Any], svg_content: str) -> None:
+def send_layout_update_to_control(layout_data: Dict[str, Any],
+                                  svg_content: str,
+                                  operation_mode: OperationMode = OperationMode.SCENE_SETUP) -> None:
     socketio.emit('layout_updated', {
         'layout': layout_data,
-        'svg': svg_content
+        'svg': svg_content,
+        'operation_mode': operation_mode.value
     }, room='control')
 
 def broadcast_layout_update():
     """Broadcast current layout to all projectors."""
     global periodic_update_timer
     try:
-        # Check if operation mode is active (at least one press has a scene loaded)
-        operation_mode_active = any(
-            _operation_state.get(press_id, {}).get('layout_data')
-            for press_id in ['press1', 'press2']
-        )
-        
-        if operation_mode_active:
+        mode = _determine_operation_mode_from_state()
+
+        if mode is OperationMode.PRODUCTION:
             # Operation mode: generate multi-press SVG
-            svg_content = projector.generate_svg(operation_mode=True)
+            svg_content = projector.generate_svg(operation_mode=mode)
             try:
                 save_debug_svg(svg_content, 'operation_latest.svg')
             except Exception:
@@ -485,17 +519,17 @@ def broadcast_layout_update():
             socketio.emit('layout_updated', {
                 'layout': None,  # Operation mode doesn't use _layout_state
                 'svg': svg_content,
-                'operation_mode': True
+                'operation_mode': mode.value
             }, room='control')
         else:
             # Normal mode: send current layout
             layout_data = projector.get_layout_data()
-            svg_content = projector.generate_svg()
+            svg_content = projector.generate_svg(operation_mode=mode)
             try:
                 save_debug_svg(svg_content, 'control_latest.svg')
             except Exception:
                 pass
-            send_layout_update_to_control(layout_data, svg_content)
+            send_layout_update_to_control(layout_data, svg_content, mode)
     except Exception as e:
         logger.exception("Error broadcasting layout update")
     
@@ -796,75 +830,6 @@ def active_press():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/press-size', methods=['GET', 'POST'])
-def press_size():
-    """Get or update press dimensions (mm) in calibration config for active press.
-
-    GET: returns current press_width_mm and press_height_mm if calibration exists.
-    POST: expects { press_width_mm, press_height_mm, press_id? }; recomputes calibration using existing
-          source points and updates destination points to match the new press size, then saves.
-    """
-    try:
-        press_id = request.args.get('press_id') or (request.get_json() or {}).get('press_id', _active_press)
-        if press_id not in _press_calibrators:
-            return jsonify({'error': f'Invalid press_id: {press_id}'}), 400
-        
-        if request.method == 'GET':
-            calibration_data = db.load_press_calibration(press_id)
-            if not calibration_data:
-                return jsonify({'error': f'No calibration data found for {press_id}'}), 404
-            return jsonify({
-                'press_width_mm': calibration_data.get('press_width_mm'),
-                'press_height_mm': calibration_data.get('press_height_mm'),
-                'press_id': press_id
-            })
-
-        # POST
-        data = request.get_json() or {}
-        new_w = data.get('press_width_mm')
-        new_h = data.get('press_height_mm')
-        if new_w is None or new_h is None:
-            return jsonify({'error': 'press_width_mm and press_height_mm are required'}), 400
-
-        calibration_data = db.load_press_calibration(press_id)
-        if not calibration_data:
-            return jsonify({'error': f'No calibration data found to update for {press_id}'}), 404
-
-        # Keep current source points; regenerate destination points to match new size
-        source_points = calibration_data['projector_pixels']
-        tp = calibration_data['target_pixels']
-        target_w = int(tp.get('width', 0))
-        target_h = int(tp.get('height', 0))
-        destination_points = [
-            [0, 0],
-            [float(target_w), 0],
-            [float(target_w), float(target_h)],
-            [0, float(target_h)]
-        ]
-
-        # Recompute calibration via calibrator to update matrix and pixels_per_mm
-        calibrator = get_calibrator(press_id)
-        ok = calibrator.set_calibration_points(source_points, destination_points, float(new_w), float(new_h))
-        if not ok:
-            return jsonify({'error': 'Failed to update calibration with new press size'}), 400
-
-        # Persist and broadcast
-        updated = calibrator.get_calibration_data()
-        db.save_press_calibration(press_id, updated)
-        socketio.emit('press_calibration_updated', {
-            'press_id': press_id,
-            'calibration_data': updated
-        }, room='projector')
-        socketio.emit('press_calibration_updated', {
-            'press_id': press_id,
-            'calibration_data': updated
-        }, room='control')
-        return jsonify({'success': True, 'calibration': updated, 'press_id': press_id})
-
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
 @app.route('/api/layout', methods=['POST'])
 def update_layout():
     """Update layout configuration."""
@@ -898,7 +863,7 @@ def update_layout():
             pass
         # Notify control UI only; projector consumes rasterized frames
         try:
-            send_layout_update_to_control(projector.get_layout_data(), svg_content)
+            send_layout_update_to_control(projector.get_layout_data(), svg_content, OperationMode.SCENE_SETUP)
         except Exception:
             pass
         # Ensure calibration overlay is not shown during normal edits
@@ -1145,6 +1110,24 @@ def load_configuration(config_name):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/configurations/<config_name>', methods=['DELETE'])
+def delete_configuration(config_name):
+    """Delete a saved configuration."""
+    try:
+        deleted = db.delete_configuration(config_name)
+        if deleted:
+            try:
+                last_scene = db.get_last_scene()
+                if last_scene == config_name:
+                    db.set_last_scene('')
+            except Exception:
+                pass
+            return jsonify({'success': True})
+        return jsonify({'error': 'Configuration not found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/last-scene', methods=['GET', 'POST'])
 def last_scene():
     """Get or set the last loaded scene name."""
@@ -1208,11 +1191,11 @@ def operation_load_scene():
         
         # Trigger render for operation mode
         try:
-            svg_content = projector.generate_svg(operation_mode=True)
+            svg_content = projector.generate_svg(operation_mode=OperationMode.PRODUCTION)
             socketio.emit('layout_updated', {
                 'layout': None,
                 'svg': svg_content,
-                'operation_mode': True
+                'operation_mode': OperationMode.PRODUCTION.value
             }, room='control')
         except Exception:
             pass
@@ -1247,16 +1230,13 @@ def operation_clear_scene():
         
         # Trigger render for operation mode (if any scenes still loaded)
         try:
-            operation_mode_active = any(
-                _operation_state.get(press_id, {}).get('layout_data')
-                for press_id in ['press1', 'press2']
-            )
-            if operation_mode_active:
-                svg_content = projector.generate_svg(operation_mode=True)
+            mode = _determine_operation_mode_from_state()
+            if mode is OperationMode.PRODUCTION:
+                svg_content = projector.generate_svg(operation_mode=mode)
                 socketio.emit('layout_updated', {
                     'layout': None,
                     'svg': svg_content,
-                    'operation_mode': True
+                    'operation_mode': mode.value
                 }, room='control')
         except Exception:
             pass
@@ -1368,14 +1348,10 @@ def handle_request_update():
     
     # Send current layout to control only; projector will wait for rasterized frame
     try:
-        # Check if operation mode is active
-        operation_mode_active = any(
-            _operation_state.get(press_id, {}).get('layout_data')
-            for press_id in ['press1', 'press2']
-        )
-        
-        if operation_mode_active:
-            svg_content = projector.generate_svg(operation_mode=True)
+        mode = _determine_operation_mode_from_state()
+
+        if mode is OperationMode.PRODUCTION:
+            svg_content = projector.generate_svg(operation_mode=mode)
             try:
                 save_debug_svg(svg_content, 'control_latest.svg')
             except Exception:
@@ -1383,16 +1359,16 @@ def handle_request_update():
             emit('layout_updated', {
                 'layout': None,
                 'svg': svg_content,
-                'operation_mode': True
+                'operation_mode': mode.value
             })
         else:
             layout_data = projector.get_layout_data()
-            svg_content = projector.generate_svg()
+            svg_content = projector.generate_svg(operation_mode=mode)
             try:
                 save_debug_svg(svg_content, 'request_update_latest.svg')
             except Exception:
                 pass
-            send_layout_update_to_control(layout_data, svg_content)
+            send_layout_update_to_control(layout_data, svg_content, mode)
     except Exception as e:
         logger.exception("Error handling request_update")
 
@@ -1426,7 +1402,7 @@ def handle_layout_update(data):
             pass
         # Notify control UI only
         try:
-            send_layout_update_to_control(projector.get_layout_data(), svg_content)
+            send_layout_update_to_control(projector.get_layout_data(), svg_content, OperationMode.SCENE_SETUP)
         except Exception:
             pass
         # Ensure calibration overlay is not shown during normal edits
@@ -1704,27 +1680,24 @@ def _perform_render_svg(data):
     if not svg_str:
         return
         
-    # Check if operation mode is active
-    # Only use fallback if operation_mode key is not present (None means not set)
-    # If explicitly set to False, respect that and don't override
+    # Determine operation mode from payload or current state
+    operation_mode = None
     if 'operation_mode' in data:
-        operation_mode = bool(data['operation_mode'])
-        logger.info(f"[_perform_render_svg] Received explicit operation_mode from data: {operation_mode}")
+        operation_mode = _parse_operation_mode(data['operation_mode'])
+        if operation_mode is None:
+            logger.warning(f"[_perform_render_svg] Unable to parse operation_mode: {data['operation_mode']!r}")
+    if operation_mode is None:
+        operation_mode = _determine_operation_mode_from_state()
+        logger.info(f"[_perform_render_svg] operation_mode not in data, derived from state: {operation_mode.value}")
     else:
-        # Fallback: Check operation state if operation_mode not explicitly set
-        operation_mode_from_state = any(
-            _operation_state.get(press_id, {}).get('layout_data')
-            for press_id in ['press1', 'press2']
-        )
-        operation_mode = operation_mode_from_state
-        logger.info(f"[_perform_render_svg] operation_mode not in data, checking state: {operation_mode_from_state}")
-        
-    logger.info(f"[_perform_render_svg] Final operation_mode: {operation_mode}")
+        logger.info(f"[_perform_render_svg] Received explicit operation_mode from data: {operation_mode.value}")
+    
+    logger.info(f"[_perform_render_svg] Final operation_mode: {operation_mode.value}")
     
     out_w, out_h = projector_resolution['width'], projector_resolution['height']
 
     # Render based on mode
-    if not operation_mode:
+    if operation_mode is OperationMode.SCENE_SETUP:
         # Normal mode: process SVG and render single press scene
         svg_processed = adjust_upload_image_heights(svg_str)
         svg_processed = inline_upload_image_links(svg_processed)
@@ -1747,7 +1720,7 @@ def _perform_render_svg(data):
                 continue
             
             # Generate SVG for this press only
-            press_svg = pj_generate_svg(press_id=press_id)
+            press_svg = pj_generate_svg(press_id=press_id, operation_mode=operation_mode)
             
             # Render and warp this press's scene
             press_warped = _render_press_scene(press_id, press_svg, out_w, out_h)
@@ -1763,9 +1736,8 @@ def _perform_render_svg(data):
     if not ok:
         return
     b64 = base64.b64encode(enc.tobytes()).decode('ascii')
-    operation_mode_final = bool(operation_mode)
-    logger.info(f"[_perform_render_svg] Emitting projector_frame with operation_mode: {operation_mode_final}")
-    emit('projector_frame', {'image': b64, 'operation_mode': operation_mode_final}, room='projector')
+    logger.info(f"[_perform_render_svg] Emitting projector_frame with operation_mode: {operation_mode.value}")
+    emit('projector_frame', {'image': b64, 'operation_mode': operation_mode.value}, room='projector')
     try:
         emit('set_projection_mode', { 'mode': 'frames' }, room='projector')
     except Exception:
@@ -1777,6 +1749,9 @@ def handle_render_svg(data):
     """Coalesce rapid render requests: keep only the newest while rendering."""
     logger.info(f"[handle_render_svg] Received render_svg event, data keys: {list(data.keys()) if isinstance(data, dict) else 'not a dict'}")
     global is_rendering, pending_render
+    
+    logger.warning(f"Operation mode: {data.get('operation_mode', 'unknown')}")
+    
     try:
         # If a render is in progress, replace any pending payload with the newest and return
         if is_rendering:

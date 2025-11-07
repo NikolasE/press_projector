@@ -779,9 +779,15 @@
             press1: { scene_name: null, layout_data: null },
             press2: { scene_name: null, layout_data: null }
         };
+        let activeTab = 'layout';  // Track currently active tab
 
         // Guard to accept only a single orientation change per continuous spinner hold
         const orientationSpinHold = { active: false, processed: false };
+
+        const OperationMode = {
+            SCENE_SETUP: 'scene_setup',
+            PRODUCTION: 'production'
+        };
 
         function toAbsoluteUrl(url) {
             if (!url) return '';
@@ -797,7 +803,7 @@
             updateElementList();
             setupNumericInputs();
             // Initialize press management
-            loadPressCalibration('press1');
+            loadPressCalibration('press1', { setInputs: true });
             loadPressCalibration('press2');
             fetch('/api/active-press')
                 .then(response => response.json())
@@ -903,10 +909,6 @@
                 if (pressId && cal) {
                     pressCalibrations[pressId] = cal;
                     updatePressStatus();
-                    if (pressId === activePress) {
-                        setPressInputs(cal.press_width_mm, cal.press_height_mm);
-                        renderControlPreview();
-                    }
                     // Update calibration press selection UI if in Setup & Maintenance
                     if (pressId === calibrationPress) {
                         updateCalibrationPressSelectionUI();
@@ -954,11 +956,12 @@
                         // Request render with operation mode flag
                         const svgContent = document.getElementById('previewSvg')?.innerHTML || '';
                         if (svgContent) {
+                            const operationMode = OperationMode.PRODUCTION;
                             socket.emit('render_svg', {
                                 svg: svgContent,
                                 target_width: projectorTarget.width || 1920,
                                 target_height: projectorTarget.height || 1080,
-                                operation_mode: true
+                                operation_mode: operationMode
                             });
                         }
                     }
@@ -1076,7 +1079,7 @@
             }).then(() => {
                 console.log('[selectPress] Active press set on server');
                 // Load calibration for selected press
-                loadPressCalibration(pressId);
+                loadPressCalibration(pressId, { setInputs: true });
                 // Refresh layout if needed
                 console.log('[selectPress] Calling renderControlPreview()');
                 renderControlPreview();
@@ -1087,9 +1090,7 @@
             calibrationPress = pressId;
             updateCalibrationPressSelectionUI();
             // Load calibration for selected press
-            loadPressCalibration(pressId);
-            // Update press dimensions in setup form
-            updateSetupPressDimensions(pressId);
+            loadPressCalibration(pressId, { setInputs: true });
         }
 
         function updateCalibrationPressSelectionUI() {
@@ -1121,10 +1122,8 @@
         function updateSetupPressDimensions(pressId) {
             const cal = pressCalibrations[pressId];
             if (cal) {
-                const widthInput = document.getElementById('pressWidth');
-                const heightInput = document.getElementById('pressHeight');
-                if (widthInput) widthInput.value = cal.press_width_mm || '';
-                if (heightInput) heightInput.value = cal.press_height_mm || '';
+                setPressInputs(cal.press_width_mm, cal.press_height_mm);
+                renderControlPreview();
             }
         }
 
@@ -1169,20 +1168,35 @@
             updateOperationTabStatus();
         }
 
-        function loadPressCalibration(pressId) {
-            fetch(`/api/calibration?press_id=${pressId}`)
+        function loadPressCalibration(pressId, options = {}) {
+            const { setInputs = false } = options;
+            const shouldUpdateSetup = () => pressId === calibrationPress;
+            return fetch(`/api/calibration?press_id=${pressId}`)
                 .then(response => response.json())
                 .then(data => {
                     if (data.error) {
                         pressCalibrations[pressId] = null;
+                        if (shouldUpdateSetup()) {
+                            updateCalibrationPressSelectionUI();
+                        }
                     } else {
                         pressCalibrations[pressId] = data;
+                        if ((setInputs || shouldUpdateSetup()) && data.press_width_mm != null && data.press_height_mm != null) {
+                            setPressInputs(data.press_width_mm, data.press_height_mm);
+                            renderControlPreview();
+                        }
+                        if (shouldUpdateSetup()) {
+                            updateCalibrationPressSelectionUI();
+                        }
                     }
                     updatePressStatus();
                 })
                 .catch(error => {
                     console.error('Error loading calibration:', error);
                     pressCalibrations[pressId] = null;
+                    if (shouldUpdateSetup()) {
+                        updateCalibrationPressSelectionUI();
+                    }
                     updatePressStatus();
                 });
         }
@@ -1258,12 +1272,12 @@
                     showAlert(`Scene loaded for ${pressId}`, 'success');
                     updateOperationTabUI();
                     
-                    // Explicitly trigger render with operation_mode: true
+                    // Explicitly trigger render using production operation mode
                     // Don't use renderControlPreview() here as it renders the layout editor's SVG,
                     // not the operation mode SVG. Instead, let the backend generate the correct SVG.
                     if (window.socket && window.socket.connected) {
                         setTimeout(() => {
-                            console.log('[loadSceneForPress] Explicitly requesting render with operation_mode: true');
+                            console.log('[loadSceneForPress] Explicitly requesting render with operation_mode: production');
                             // Get the preview SVG as a placeholder, but backend will use operation state
                             const rootNode = window.__lastRootNode || previewDraw?.node;
                             if (rootNode) {
@@ -1276,9 +1290,9 @@
                                     svg: svgString,
                                     target_width: projectorTarget.width || 1920,
                                     target_height: projectorTarget.height || 1080,
-                                    operation_mode: true  // Explicitly set to true
+                                    operation_mode: OperationMode.PRODUCTION
                                 });
-                                console.log('[loadSceneForPress] render_svg emitted with operation_mode: true');
+                                console.log('[loadSceneForPress] render_svg emitted with operation_mode: production');
                             } else {
                                 console.warn('[loadSceneForPress] No root node available, cannot emit render_svg');
                             }
@@ -1364,6 +1378,9 @@
         }
 
         function switchTab(tabName) {
+            const previousTab = activeTab;
+            activeTab = tabName;
+
             // Hide all tabs
             document.querySelectorAll('.tab-container').forEach(tab => {
                 tab.classList.remove('active');
@@ -1396,6 +1413,12 @@
             if (tabName === 'operation') {
                 updateOperationTabUI();
                 updateOperationTabStatus();
+            } else if (tabName === 'layout' && previousTab !== 'layout') {
+                try {
+                    renderControlPreview();
+                } catch (e) {
+                    console.error('Failed to render preview after switching to layout tab:', e);
+                }
             }
         }
 
@@ -1600,6 +1623,19 @@
             }
         }
 
+        function setCalibrationPressButtonsDisabled(disabled) {
+            const pressButtons = [
+                document.getElementById('setupPress1Btn'),
+                document.getElementById('setupPress2Btn')
+            ];
+            pressButtons.forEach(btn => {
+                if (!btn) return;
+                btn.disabled = disabled;
+                btn.style.opacity = disabled ? '0.5' : '1';
+                btn.style.cursor = disabled ? 'not-allowed' : 'pointer';
+            });
+        }
+
         function startInteractiveCalibration() {
             const width = parseFloat(document.getElementById('pressWidth').value);
             const height = parseFloat(document.getElementById('pressHeight').value);
@@ -1621,6 +1657,9 @@
                 closeBtn.style.opacity = '0.5';
                 closeBtn.style.cursor = 'not-allowed';
             }
+
+            // Disable press selection buttons while calibrating
+            setCalibrationPressButtonsDisabled(true);
             
             // Show calibration preview controls
             const previewControls = document.getElementById('calibrationPreviewControls');
@@ -1694,6 +1733,9 @@
                 closeBtn.style.opacity = '1';
                 closeBtn.style.cursor = 'pointer';
             }
+
+            // Re-enable press selection buttons after calibration stops
+            setCalibrationPressButtonsDisabled(false);
             
             // Hide calibration preview controls
             const previewControls = document.getElementById('calibrationPreviewControls');
@@ -2175,7 +2217,7 @@ function validateCalibration() {
             } finally {
                 suppressImmediateRender = false;
             }
-            try { scheduleRenderSendDebounced(window.__lastRootNode || previewDraw.node, 80); } catch (e) {}
+            try { scheduleRenderSendDebounced(window.__lastRootNode || previewDraw.node, 80, getOperationMode()); } catch (e) {}
         }
 
         function updateCenterLines() {
@@ -2615,11 +2657,19 @@ function validateCalibration() {
             // click outside to close
             editor.onclick = (e) => { if (e.target === editor) closeElementEditor(); };
 
-            // keyboard: Escape => cancel (do not bind 's' or 'Enter' to save to avoid interfering with typing)
+            // keyboard: Escape => cancel, Enter => save (unless used for multiline input)
             eeKeyHandler = (e) => {
                 if (e.key === 'Escape') {
                     e.preventDefault();
                     closeElementEditor();
+                } else if (e.key === 'Enter') {
+                    const active = document.activeElement;
+                    const isMultiline = active && active.tagName === 'TEXTAREA';
+                    const isButton = active && active.tagName === 'BUTTON';
+                    if (!isMultiline && !isButton) {
+                        e.preventDefault();
+                        saveElementEditor();
+                    }
                 }
             };
             document.addEventListener('keydown', eeKeyHandler);
@@ -2915,6 +2965,40 @@ function validateCalibration() {
             });
         }
 
+        function promptDeleteConfiguration(name) {
+            showConfirmModal(`Delete scene "${name}"? This action cannot be undone.`, () => {
+                const encodedName = encodeURIComponent(name);
+                fetch(`/api/configurations/${encodedName}`, {
+                    method: 'DELETE'
+                })
+                .then(async response => {
+                    const payload = await response.json().catch(() => ({}));
+                    return { ok: response.ok, data: payload };
+                })
+                .then(({ ok, data }) => {
+                    if (ok) {
+                        showAlert(`Scene "${name}" deleted`, 'success');
+                        configurations = configurations.filter(cfg => cfg !== name);
+                        updateConfigurationList();
+                        updateOperationSceneSelects();
+                        Object.keys(operationState || {}).forEach(pressId => {
+                            if (operationState[pressId] && operationState[pressId].scene_name === name) {
+                                operationState[pressId].scene_name = null;
+                                operationState[pressId].layout_data = null;
+                            }
+                        });
+                        updateOperationTabUI();
+                    } else {
+                        const message = data && data.error ? data.error : 'Unknown error';
+                        showAlert('Delete failed: ' + message, 'error');
+                    }
+                })
+                .catch(error => {
+                    showAlert('Delete error: ' + error, 'error');
+                });
+            }, 'Delete');
+        }
+
         function loadConfigurations() {
             fetch('/api/configurations')
                 .then(response => response.json())
@@ -2962,17 +3046,33 @@ function validateCalibration() {
 
         function updateConfigurationList() {
             const list = document.getElementById('configurationList');
+            if (!list) return;
             list.innerHTML = '';
             
             configurations.forEach(config => {
                 const item = document.createElement('div');
                 item.className = 'element-item';
-                item.innerHTML = `
-                    <span>${config}</span>
-                    <div class="element-controls">
-                        <button onclick="loadConfiguration('${config}')">Load</button>
-                    </div>
-                `;
+
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = config;
+                item.appendChild(nameSpan);
+
+                const controls = document.createElement('div');
+                controls.className = 'element-controls';
+
+                const loadBtn = document.createElement('button');
+                loadBtn.textContent = 'Load';
+                loadBtn.addEventListener('click', () => loadConfiguration(config));
+                controls.appendChild(loadBtn);
+
+                const deleteBtn = document.createElement('button');
+                deleteBtn.textContent = 'Delete';
+                deleteBtn.style.background = '#e74c3c';
+                deleteBtn.style.color = '#fff';
+                deleteBtn.addEventListener('click', () => promptDeleteConfiguration(config));
+                controls.appendChild(deleteBtn);
+
+                item.appendChild(controls);
                 list.appendChild(item);
             });
         }
@@ -3060,7 +3160,6 @@ function validateCalibration() {
         let previewDraw = null;
         let renderTimer = null;
         let projectorTarget = { width: 1920, height: 1080 };
-        let pressSizeTimer = null;
 
         function setPressInputs(widthMm, heightMm) {
             console.log('Setting press inputs:', widthMm, heightMm);
@@ -3092,26 +3191,24 @@ function validateCalibration() {
                 });
             }
 
-            // Load current press size from backend (if calibrated)
-            fetch('/api/press-size')
-                .then(r => r.ok ? r.json() : null)
-                .then(data => {
-                    if (data && data.press_width_mm && data.press_height_mm) {
-                        setPressInputs(data.press_width_mm, data.press_height_mm);
-                        renderControlPreview();
-                    }
-                }).catch(() => {});
-
-            // Wire inputs to save (debounced)
+            // Wire inputs to update preview without persisting
             const pw = document.getElementById('pressWidth');
             const ph = document.getElementById('pressHeight');
             const onPressSizeChange = () => {
-                if (pressSizeTimer) clearTimeout(pressSizeTimer);
-                pressSizeTimer = setTimeout(savePressSize, 500);
                 renderControlPreview();
             };
             pw.addEventListener('input', onPressSizeChange);
             ph.addEventListener('input', onPressSizeChange);
+        }
+
+        function isOperationModeActive() {
+            const press1Active = operationState.press1 && operationState.press1.scene_name;
+            const press2Active = operationState.press2 && operationState.press2.scene_name;
+            return activeTab === 'operation' && !!(press1Active || press2Active);
+        }
+
+        function getOperationMode() {
+            return isOperationModeActive() ? OperationMode.PRODUCTION : OperationMode.SCENE_SETUP;
         }
 
         let suppressImmediateRender = false;
@@ -3306,7 +3403,7 @@ function validateCalibration() {
                     const rot = el.rotation || 0;
                     const tg = g.group();
                     if (rot) tg.rotate(rot, x, y);
-                    const tnode = tg.text(el.text || '').font({ size: fs }).fill(el.color || '#0ff').move(x, y);
+                    const tnode = tg.text(el.text || '').font({ size: fs, family: 'Arial, sans-serif' }).fill(el.color || '#0ff').move(x, y);
                     if (typeof tg.draggable === 'function') {
                         tg.css('cursor', 'grab');
                         tg.draggable();
@@ -3370,9 +3467,8 @@ function validateCalibration() {
                                 window.__imgAspectCache[url] = ratio;
                                 applySize(w * ratio);
                                 // After correcting size, re-send SVG for rasterization
-                                const inOpMode = (operationState.press1 && operationState.press1.scene_name) || 
-                                               (operationState.press2 && operationState.press2.scene_name);
-                                try { scheduleRenderSend(root.node, inOpMode); } catch (e) {}
+                                const operationMode = getOperationMode();
+                                try { scheduleRenderSend(root.node, operationMode); } catch (e) {}
                             }
                         };
                         pre.src = url;
@@ -3399,11 +3495,9 @@ function validateCalibration() {
             // Debounced send to backend for rasterize+warp
             console.log('[renderControlPreview] suppressImmediateRender:', suppressImmediateRender);
             if (!suppressImmediateRender) {
-                // Check if we're in operation mode (any press has a scene loaded)
-                const inOperationMode = (operationState.press1 && operationState.press1.scene_name) || 
-                                       (operationState.press2 && operationState.press2.scene_name);
-                console.log('[renderControlPreview] Calling scheduleRenderSend, operation_mode:', inOperationMode);
-                scheduleRenderSend(root.node, inOperationMode);
+                const operationMode = getOperationMode();
+                console.log('[renderControlPreview] Calling scheduleRenderSend, operation_mode:', operationMode);
+                scheduleRenderSend(root.node, operationMode);
             } else {
                 console.log('[renderControlPreview] Skipping render send due to suppressImmediateRender');
             }
@@ -3462,7 +3556,7 @@ function validateCalibration() {
         }
 
         let renderSendTimer = null;
-        function scheduleRenderSend(rootSvgNode, operationMode = false) {
+        function scheduleRenderSend(rootSvgNode, operationMode = OperationMode.SCENE_SETUP) {
             console.log('[scheduleRenderSend] Called, window.socket:', !!window.socket, 'operation_mode:', operationMode);
             if (!window.socket) {
                 console.warn('[scheduleRenderSend] No socket connection, returning early');
@@ -3491,32 +3585,12 @@ function validateCalibration() {
             });
         }
 
-        function scheduleRenderSendDebounced(rootSvgNode, delayMs = 80, operationMode = false) {
+        function scheduleRenderSendDebounced(rootSvgNode, delayMs = 80, operationMode = OperationMode.SCENE_SETUP) {
             if (!window.socket) return;
             if (renderSendTimer) clearTimeout(renderSendTimer);
             renderSendTimer = setTimeout(() => {
                 scheduleRenderSend(rootSvgNode, operationMode);
             }, delayMs);
-        }
-
-        function savePressSize() {
-            const w = parseFloat(document.getElementById('pressWidth').value);
-            const h = parseFloat(document.getElementById('pressHeight').value);
-            if (!w || !h) return;
-            fetch('/api/press-size', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ press_width_mm: w, press_height_mm: h })
-            })
-            .then(r => r.json())
-            .then(data => {
-                if (data && data.success) {
-                    showAlert(`Press size saved: ${w}×${h}mm`, 'success');
-                } else if (data && data.error) {
-                    showAlert('Failed to save press size: ' + data.error, 'error');
-                }
-            })
-            .catch(err => showAlert('Error saving press size: ' + err, 'error'));
         }
 
         // ===== Selection & Nudge/Rotate Controls =====
@@ -3557,7 +3631,7 @@ function validateCalibration() {
             renderControlPreview();
             suppressImmediateRender = false;
             scheduleLayoutUpdateDebounced();
-            try { scheduleRenderSendDebounced(window.__lastRootNode || previewDraw.node, 80); } catch (e) {}
+            try { scheduleRenderSendDebounced(window.__lastRootNode || previewDraw.node, 80, getOperationMode()); } catch (e) {}
             updateElementList();
         }
 
@@ -3590,7 +3664,7 @@ function validateCalibration() {
             renderControlPreview();
             suppressImmediateRender = false;
             scheduleLayoutUpdateDebounced();
-            try { scheduleRenderSendDebounced(window.__lastRootNode || previewDraw.node, 80); } catch (e) {}
+            try { scheduleRenderSendDebounced(window.__lastRootNode || previewDraw.node, 80, getOperationMode()); } catch (e) {}
             updateElementList();
         }
 
@@ -3608,12 +3682,23 @@ function validateCalibration() {
                 if (isInput || anyModalOpen) return;
 
                 // Handle calibration mode first
-                if (calibrationMode && selectedCalibrationCorner !== null) {
-                    if (e.key === 'ArrowUp') { e.preventDefault(); nudgeCalibrationCorner(0, -1); }
-                    else if (e.key === 'ArrowDown') { e.preventDefault(); nudgeCalibrationCorner(0, 1); }
-                    else if (e.key === 'ArrowLeft' && !e.shiftKey) { e.preventDefault(); nudgeCalibrationCorner(-1, 0); }
-                    else if (e.key === 'ArrowRight' && !e.shiftKey) { e.preventDefault(); nudgeCalibrationCorner(1, 0); }
-                    else if (e.key === 'Escape') { e.preventDefault(); selectCalibrationCorner(null); }
+                if (calibrationMode) {
+                    if (e.key === 'Tab') {
+                        e.preventDefault();
+                        // Cycle through the four calibration points (0->1->2->3->0)
+                        if (selectedCalibrationCorner === null) {
+                            selectCalibrationCorner(0);
+                        } else {
+                            const nextIndex = (selectedCalibrationCorner + 1) % 4;
+                            selectCalibrationCorner(nextIndex);
+                        }
+                    } else if (selectedCalibrationCorner !== null) {
+                        if (e.key === 'ArrowUp') { e.preventDefault(); nudgeCalibrationCorner(0, -1); }
+                        else if (e.key === 'ArrowDown') { e.preventDefault(); nudgeCalibrationCorner(0, 1); }
+                        else if (e.key === 'ArrowLeft' && !e.shiftKey) { e.preventDefault(); nudgeCalibrationCorner(-1, 0); }
+                        else if (e.key === 'ArrowRight' && !e.shiftKey) { e.preventDefault(); nudgeCalibrationCorner(1, 0); }
+                        else if (e.key === 'Escape') { e.preventDefault(); selectCalibrationCorner(null); }
+                    }
                 } else {
                     // Normal element editing mode
                     if (e.key === 'Escape') { e.preventDefault(); setSelectedElement(-1); }

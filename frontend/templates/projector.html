@@ -225,6 +225,11 @@
         let preferFrames = true;
         let noDataTimer = null; // delay before showing "No projection data available"
 
+        const OperationMode = {
+            SCENE_SETUP: 'scene_setup',
+            PRODUCTION: 'production'
+        };
+
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
             // Check if socket.io is loaded
@@ -320,8 +325,9 @@
                 // Update mode badge if backend provided the flag
                 try {
                     const badge = document.getElementById('modeBadge');
-                    if (badge && typeof data.operation_mode === 'boolean') {
-                        badge.textContent = data.operation_mode ? 'OPERATION' : 'LAYOUT';
+                    const modeValue = (data && typeof data.operation_mode === 'string') ? data.operation_mode : null;
+                    if (badge && modeValue) {
+                        badge.textContent = modeValue === OperationMode.PRODUCTION ? 'OPERATION' : 'LAYOUT';
                         badge.style.display = 'block';
                     }
                 } catch (e) {}
@@ -349,9 +355,9 @@
             socket.on('operation_mode_changed', function(data) {
                 try {
                     const badge = document.getElementById('modeBadge');
-                    const effective = (data && typeof data.operation_mode === 'boolean') ? data.operation_mode : null;
-                    if (badge && effective !== null) {
-                        badge.textContent = effective ? 'OPERATION' : 'LAYOUT';
+                    const modeValue = (data && typeof data.operation_mode === 'string') ? data.operation_mode : null;
+                    if (badge && modeValue) {
+                        badge.textContent = modeValue === OperationMode.PRODUCTION ? 'OPERATION' : 'LAYOUT';
                         badge.style.display = 'block';
                     }
                 } catch (e) {}

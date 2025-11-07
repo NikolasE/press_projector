@@ -8,21 +8,21 @@
     "elements": [
       {
         "color": "#e01b24",
-        "font_size": 50,
-        "label": "Temp",
+        "font_size": 100,
+        "label": "2",
         "position": [
-          -141.4960355758667,
-          -146.39867687225342
+          36.13508605957031,
+          19.19793701171875
         ],
         "rotation": 0,
         "show_helper_lines": false,
-        "text": "Job: 123",
+        "text": "2",
         "type": "text"
       },
       {
         "color": "#00ffff",
         "height": 300,
-        "label": "",
+        "label": "FrontTop",
         "line_width": 4,
         "position": [
           -150,
@@ -53,10 +53,10 @@
         "height": 90.09404388714734,
         "image_url": "http://localhost:5670/uploads/ubuntu_2.png",
         "label": "Image 4",
-        "opacity": 0.58,
+        "opacity": 1,
         "position": [
-          -143.58296632766724,
-          19.213211059570312
+          -126.29230117797852,
+          17.708740234375
         ],
         "rotation": 0,
         "show_helper_lines": false,
@@ -78,6 +78,6 @@
       }
     ]
   },
-  "config_name": "asd",
-  "timestamp": "2025-11-07T10:37:41.765664"
+  "config_name": "asd2",
+  "timestamp": "2025-11-07T10:35:59.804874"
 }

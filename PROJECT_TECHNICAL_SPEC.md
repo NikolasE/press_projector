@@ -141,8 +141,6 @@ Timer-based broadcast system (2-second interval) sends layout updates to control
 #### Calibration Endpoints
 - `POST /api/calibration`: Accepts JSON with `projector_pixels`, `target_pixels`, `press_width_mm`, `press_height_mm`. Validates input, computes calibration, persists to database, broadcasts via WebSocket.
 - `GET /api/calibration`: Returns current calibration data or 404 if absent.
-- `GET /api/press-size`: Returns current press dimensions.
-- `POST /api/press-size`: Updates press dimensions, recomputes destination points while preserving source points, updates calibration matrix.
 
 #### Layout Endpoints
 - `POST /api/layout`: Accepts JSON with `object_orientation`, `center_lines`, `elements`. Updates in-memory state, generates SVG, broadcasts to control interface.
