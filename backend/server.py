@@ -14,7 +14,7 @@ import base64
 import numpy as np
 import cv2
 import cairosvg
-from threading import Timer
+from threading import Timer, Lock
 import re
 import logging
 from pathlib import Path
@@ -39,6 +39,30 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 os.makedirs('debug', exist_ok=True)
 log_format = '%(asctime)s %(levelname)s %(name)s %(message)s'
 
+
+class ColorFormatter(logging.Formatter):
+    COLORS = {
+        logging.DEBUG: '\033[36m',    # Cyan
+        logging.INFO: '\033[32m',     # Green
+        logging.WARNING: '\033[33m',  # Yellow
+        logging.ERROR: '\033[31m',    # Red
+        logging.CRITICAL: '\033[41m', # Red background
+    }
+    RESET = '\033[0m'
+
+    def __init__(self, fmt: str, stream):
+        super().__init__(fmt)
+        # Only enable colors if the target stream is a tty
+        self._use_color = hasattr(stream, 'isatty') and stream.isatty()
+
+    def format(self, record: logging.LogRecord) -> str:
+        message = super().format(record)
+        if self._use_color:
+            color = self.COLORS.get(record.levelno)
+            if color:
+                message = f"{color}{message}{self.RESET}"
+        return message
+
 # Configure root logger - remove existing handlers first
 root_logger = logging.getLogger()
 root_logger.setLevel(logging.INFO)
@@ -57,7 +81,7 @@ file_handler.setFormatter(logging.Formatter(log_format))
 # Console handler (terminal output) - use sys.stdout explicitly
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setLevel(logging.INFO)
-console_handler.setFormatter(logging.Formatter(log_format))
+console_handler.setFormatter(ColorFormatter(log_format, console_handler.stream))
 
 # Add handlers to root logger
 root_logger.addHandler(file_handler)
@@ -302,7 +326,7 @@ def pj_generate_svg(width: int = 1920,
     if rot:
         parts.append('</g>')
     styles = (
-        '.center-line{stroke:#f00;stroke-width:5;stroke-dasharray:10,5}'
+        '.center-line{stroke:#f00;stroke-width:5;stroke-dasharray:10,5;stroke-opacity:0.5}'
         '.boundary{stroke:#ff0;stroke-width:4;fill:rgba(255,255,0,0.2)}'
         '.element-shape{stroke:#0ff;stroke-width:2;fill:none}'
     )
@@ -340,9 +364,10 @@ debug_bypass_warp = False
 # Periodic update timer
 periodic_update_timer = None
 
-# Render coalescing state: drop intermediate renders while one is in progress
-is_rendering = False
-pending_render = None
+# Render coalescing state: keep only latest payload
+_render_lock = Lock()
+_render_worker_running = False
+_latest_render_payload = None
 
 
 def encode_filename_to_data_url(filename: str):
@@ -1668,11 +1693,12 @@ def _perform_render_svg(data):
             logger.warning(f"[_perform_render_svg] Unable to parse operation_mode: {data['operation_mode']!r}")
     if operation_mode is None:
         operation_mode = _determine_operation_mode_from_state()
-        logger.info(f"[_perform_render_svg] operation_mode not in data, derived from state: {operation_mode.value}")
+        # logger.info(f"[_perform_render_svg] operation_mode not in data, derived from state: {operation_mode.value}")
     else:
-        logger.info(f"[_perform_render_svg] Received explicit operation_mode from data: {operation_mode.value}")
+        pass
+        # logger.info(f"[_perform_render_svg] Received explicit operation_mode from data: {operation_mode.value}")
     
-    logger.info(f"[_perform_render_svg] Final operation_mode: {operation_mode.value}")
+    # logger.info(f"[_perform_render_svg] Final operation_mode: {operation_mode.value}")
     
     out_w, out_h = projector_resolution['width'], projector_resolution['height']
 
@@ -1716,45 +1742,40 @@ def _perform_render_svg(data):
     if not ok:
         return
     b64 = base64.b64encode(enc.tobytes()).decode('ascii')
-    logger.info(f"[_perform_render_svg] Emitting projector_frame with operation_mode: {operation_mode.value}")
-    emit('projector_frame', {'image': b64, 'operation_mode': operation_mode.value}, room='projector')
-    try:
-        emit('set_projection_mode', { 'mode': 'frames' }, room='projector')
-    except Exception:
-        pass
+    socketio.emit('projector_frame', {'image': b64, 'operation_mode': operation_mode.value}, room='projector')
+    socketio.emit('set_projection_mode', { 'mode': 'frames' }, room='projector')
+    logger.warning(f"[_perform_render_svg] Emitted projector_frame with operation_mode: {operation_mode.value}")
 
 
 @socketio.on('render_svg')
 def handle_render_svg(data):
     """Coalesce rapid render requests: keep only the newest while rendering."""
-    logger.info(f"[handle_render_svg] Received render_svg event, data keys: {list(data.keys()) if isinstance(data, dict) else 'not a dict'}")
-    global is_rendering, pending_render
-    
-    logger.warning(f"Operation mode: {data.get('operation_mode', 'unknown')}")
-    
-    try:
-        # If a render is in progress, replace any pending payload with the newest and return
-        if is_rendering:
-            logger.info("[handle_render_svg] Render already in progress, queuing request")
-            pending_render = data
-            return
+    global _latest_render_payload, _render_worker_running
 
-        # Start rendering and process the newest pending payload after each render
-        logger.info("[handle_render_svg] Starting render process")
-        is_rendering = True
-        current = data
-        while current is not None:
-            try:
-                logger.info(f"[handle_render_svg] Processing render, svg length: {len(current.get('svg', ''))}")
-                _perform_render_svg(current)
-            except Exception as e:
-                logger.exception("Error rendering SVG")
-            # Grab the latest pending render (if any), then clear it
-            current = pending_render
-            pending_render = None
-    finally:
-        is_rendering = False
-        logger.info("[handle_render_svg] Render process completed")
+    with _render_lock:
+        _latest_render_payload = data
+        if _render_worker_running:
+            return
+        _render_worker_running = True
+
+    def _render_worker():
+        global _latest_render_payload, _render_worker_running
+        try:
+            while True:
+                with _render_lock:
+                    payload = _latest_render_payload
+                    _latest_render_payload = None
+                if payload is None:
+                    break
+                try:
+                    _perform_render_svg(payload)
+                except Exception:
+                    logger.exception("Error rendering SVG")
+        finally:
+            with _render_lock:
+                _render_worker_running = False
+
+    socketio.start_background_task(_render_worker)
 
 
 if __name__ == '__main__':

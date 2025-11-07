@@ -615,7 +615,12 @@
     <div id="elementEditor" style="display:none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center;">
         <div style="background: white; padding: 1rem; border-radius: 8px; width: 320px; max-width: 90vw; box-shadow: 0 10px 30px rgba(0,0,0,0.25);">
             <h3 style="margin-bottom: 0.75rem;">Edit Element</h3>
-            <div class="form-group" style="margin-bottom:0.75rem;">
+            <div id="elementEditorAlert" style="display:none; margin-bottom:0.75rem; padding:0.5rem 0.75rem; background:#fdecea; color:#c0392b; border:1px solid #e74c3c; border-radius:4px; font-size:0.9rem;"></div>
+            <div class="form-group" id="eeNameGroup" style="margin-bottom:0.75rem; display:none;">
+                <label>Name</label>
+                <input type="text" id="eeName">
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;" id="eeLabelGroup">
                 <label>Label</label>
                 <input type="text" id="eeLabel">
             </div>
@@ -649,7 +654,10 @@
                 </div>
             </div>
             <div id="eeLineFields" style="display:none;">
-                <div style="font-size:0.85rem; color:#666; margin-top:0.25rem; margin-bottom:0.5rem;">Length stays unchanged; edits reposition and rotate the line.</div>
+                <div class="form-group" style="margin-bottom:0.75rem;">
+                    <label>Length (mm)</label>
+                    <input type="text" id="eeLineLength">
+                </div>
             </div>
             <div id="eeCircleFields" style="display:none;">
                 <div class="form-group" style="margin-bottom:0.75rem;">
@@ -780,6 +788,26 @@
             press2: { scene_name: null, layout_data: null }
         };
         let activeTab = 'layout';  // Track currently active tab
+
+        function updateLineLength(el) {
+            if (!el || el.type !== 'line') return 0;
+            const [sx, sy] = el.start || [0, 0];
+            const [ex, ey] = el.end || [0, 0];
+            const len = Math.hypot(ex - sx, ey - sy);
+            el.line_length_mm = len;
+            return len;
+        }
+
+        function computeLineEndpoints(centerX, centerY, rotationDeg, lengthMm) {
+            const half = Math.max(0, lengthMm) / 2;
+            const rad = rotationDeg * Math.PI / 180;
+            const dx = Math.cos(rad) * half;
+            const dy = Math.sin(rad) * half;
+            return {
+                start: [centerX - dx, centerY - dy],
+                end: [centerX + dx, centerY + dy]
+            };
+        }
 
         // Guard to accept only a single orientation change per continuous spinner hold
         const orientationSpinHold = { active: false, processed: false };
@@ -1056,6 +1084,7 @@
             enforceNumericInput(document.getElementById('eeRadius'), { allowNegative: false, allowDecimal: true });
             enforceNumericInput(document.getElementById('eeTextSize'), { allowNegative: false, allowDecimal: true });
             enforceNumericInput(document.getElementById('eeLineWidth'), { allowNegative: false, allowDecimal: true });
+            enforceNumericInput(document.getElementById('eeLineLength'), { allowNegative: false, allowDecimal: true });
         }
 
         function updateConnectionStatus(connected) {
@@ -2301,9 +2330,11 @@ function validateCalibration() {
                 type: 'line',
                 start: [0, 0],
                 end: [50, 50],
+                name: 'Line ' + (elements.length + 1),
                 label: 'Line ' + (elements.length + 1),
                 line_width: 5
             };
+            updateLineLength(element);
             elements.push(element);
             updateElementList();
             sendLayoutUpdate();
@@ -2323,6 +2354,7 @@ function validateCalibration() {
                 width: w,
                 height: h,
                 rotation: 0,
+                name: 'Rectangle ' + (elements.length + 1),
                 label: 'Rectangle ' + (elements.length + 1),
                 line_width: 5
             };
@@ -2342,6 +2374,7 @@ function validateCalibration() {
                 type: 'circle',
                 position: [cx, cy],
                 radius: r,
+                name: 'Circle ' + (elements.length + 1),
                 label: 'Circle ' + (elements.length + 1),
                 line_width: 5
             };
@@ -2439,7 +2472,8 @@ function validateCalibration() {
                 image_url: toAbsoluteUrl(file.url || '/uploads/' + file.filename),
                 color: '#00ffff',
                 opacity: 0.5,
-                label: 'Image ' + (elements.length + 1)
+                name: (file && typeof file.filename === 'string' && file.filename.trim()) ? file.filename.trim() : 'Image ' + (elements.length + 1),
+                label: ''
             };
             elements.push(element);
             updateElementList();
@@ -2459,12 +2493,32 @@ function validateCalibration() {
                 font_size: 10,
                 text: 'Sample Text',
                 color: '#00ffff',
+                name: 'Text ' + (elements.length + 1),
                 label: 'Text ' + (elements.length + 1)
             };
             elements.push(element);
             updateElementList();
             sendLayoutUpdate();
             renderControlPreview();
+        }
+
+        function getElementDisplayName(element) {
+            if (!element) return 'Element';
+            if (element.type === 'text') {
+                const nameValue = (typeof element.name === 'string') ? element.name.trim() : '';
+                if (nameValue) return nameValue;
+                if (typeof element.label === 'string' && element.label.trim()) return element.label.trim();
+                if (typeof element.text === 'string' && element.text.trim()) return element.text.trim();
+                return 'Text element';
+            }
+            const nameValue = (typeof element.name === 'string') ? element.name.trim() : '';
+            if (nameValue) return nameValue;
+            const labelValue = (typeof element.label === 'string') ? element.label.trim() : '';
+            if (labelValue) return labelValue;
+            if (typeof element.type === 'string' && element.type.length) {
+                return element.type.charAt(0).toUpperCase() + element.type.slice(1);
+            }
+            return 'Element';
         }
 
         function updateElementList() {
@@ -2474,8 +2528,9 @@ function validateCalibration() {
             elements.forEach((element, index) => {
                 const item = document.createElement('div');
                 item.className = 'element-item';
+                const displayName = getElementDisplayName(element);
                 item.innerHTML = `
-                    <span>${element.label}</span>
+                    <span>${displayName}</span>
                     <div class="element-controls">
                         <button onclick="editElement(${index})">Edit</button>
                         <button onclick="removeElement(${index})">Remove</button>
@@ -2548,11 +2603,27 @@ function validateCalibration() {
 
         let eeIndex = -1;
         let eeKeyHandler = null;
+
+        function setElementEditorAlert(message) {
+            const alert = document.getElementById('elementEditorAlert');
+            if (!alert) return;
+            if (message && String(message).trim()) {
+                alert.textContent = message;
+                alert.style.display = 'block';
+            } else {
+                alert.style.display = 'none';
+                alert.textContent = '';
+            }
+        }
+
         function editElement(index) {
             eeIndex = index;
             const element = elements[index];
             const editor = document.getElementById('elementEditor');
             const label = document.getElementById('eeLabel');
+            const nameInput = document.getElementById('eeName');
+            const nameGroup = document.getElementById('eeNameGroup');
+            const labelGroup = document.getElementById('eeLabelGroup');
             const color = document.getElementById('eeColor');
             const commonFields = document.getElementById('eeCommonFields');
             const rectFields = document.getElementById('eeRectFields');
@@ -2561,8 +2632,35 @@ function validateCalibration() {
             const textFields = document.getElementById('eeTextFields');
             const imageFields = document.getElementById('eeImageFields');
             const lineWidthField = document.getElementById('eeLineWidthField');
+            const lineLengthInput = document.getElementById('eeLineLength');
 
             label.value = element.label || '';
+            setElementEditorAlert(null);
+            if (nameInput) {
+                nameInput.style.borderColor = '';
+                nameInput.oninput = (e) => {
+                    e.target.style.borderColor = '';
+                    setElementEditorAlert(null);
+                };
+            }
+            if (nameGroup) {
+                const fallbackName = (typeof element.name === 'string') ? element.name : (element.label || '');
+                if (element.type === 'text') {
+                    nameGroup.style.display = 'block';
+                    if (nameInput) nameInput.value = fallbackName;
+                } else {
+                    nameGroup.style.display = 'block';
+                    if (nameInput) nameInput.value = fallbackName;
+                }
+            }
+            if (labelGroup) {
+                if (element.type === 'text') {
+                    labelGroup.style.display = 'none';
+                    if (label) label.value = element.label || '';
+                } else {
+                    labelGroup.style.display = 'block';
+                }
+            }
             color.value = normalizeColorForInput(element.color || '#00ffff');
             try { document.getElementById('eeShowHelpers').checked = !!element.show_helper_lines; } catch (e) {}
             
@@ -2586,7 +2684,6 @@ function validateCalibration() {
                 document.getElementById('eeY').value = y != null ? y.toFixed(1) : '';
                 document.getElementById('eeRotation').value = element.rotation != null ? element.rotation : 0;
             } else if (element.type === 'line') {
-                // Lines compute x, y from start/end points
                 const [x1,y1] = element.start || [0,0];
                 const [x2,y2] = element.end || [0,0];
                 const mx = (x1 + x2) / 2;
@@ -2594,7 +2691,9 @@ function validateCalibration() {
                 const ang = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
                 document.getElementById('eeX').value = mx.toFixed(1);
                 document.getElementById('eeY').value = my.toFixed(1);
-                document.getElementById('eeRotation').value = ang.toFixed(1);
+                document.getElementById('eeRotation').value = (element.rotation != null ? element.rotation : ang).toFixed(1);
+                const length = updateLineLength(element);
+                if (lineLengthInput) lineLengthInput.value = Number.isFinite(length) ? length.toFixed(2) : '';
             }
             
             // Type-specific field population
@@ -2680,6 +2779,8 @@ function validateCalibration() {
             const editor = document.getElementById('elementEditor');
             editor.style.display = 'none';
             try { document.getElementById('eeColor').blur(); } catch (err) {}
+            try { document.getElementById('eeName').style.borderColor = ''; } catch (err) {}
+            setElementEditorAlert(null);
             if (eeKeyHandler) {
                 document.removeEventListener('keydown', eeKeyHandler);
                 eeKeyHandler = null;
@@ -2690,12 +2791,33 @@ function validateCalibration() {
         function saveElementEditor() {
             if (eeIndex < 0) return;
             const element = elements[eeIndex];
-            const label = document.getElementById('eeLabel').value;
+            const labelInput = document.getElementById('eeLabel');
+            const labelValue = labelInput ? labelInput.value : '';
+            const nameInput = document.getElementById('eeName');
+            const rawName = nameInput ? nameInput.value || '' : '';
+            const trimmedName = rawName.trim();
+            if (nameInput) {
+                nameInput.style.borderColor = '';
+            }
+            if (!trimmedName) {
+                if (nameInput) {
+                    nameInput.style.borderColor = '#e74c3c';
+                    try { nameInput.focus(); nameInput.select(); } catch (e) {}
+                }
+                setElementEditorAlert('Name is required. Please enter a name before saving.');
+                return;
+            }
             const color = document.getElementById('eeColor').value;
             const showHelpersEl = document.getElementById('eeShowHelpers');
             const showHelpers = showHelpersEl ? !!showHelpersEl.checked : false;
 
-            element.label = label;
+            if (element.type === 'text') {
+                element.name = trimmedName;
+                element.label = trimmedName;
+            } else {
+                element.label = labelValue;
+                element.name = trimmedName;
+            }
             element.color = color;
             element.show_helper_lines = showHelpers;
             
@@ -2712,18 +2834,28 @@ function validateCalibration() {
                 if (!Number.isNaN(w) && w >= 0) element.width = w;
                 if (!Number.isNaN(h) && h >= 0) element.height = h;
             } else if (element.type === 'line') {
-                // Lines reconstruct start/end from center point and rotation
-                if (!Number.isNaN(x) && !Number.isNaN(y) && !Number.isNaN(rotation)) {
-                    const [x1,y1] = element.start || [0,0];
-                    const [x2,y2] = element.end || [0,0];
-                    const len = Math.hypot(x2 - x1, y2 - y1);
-                    const half = len / 2;
-                    const rad = rotation * Math.PI / 180;
-                    const dx = Math.cos(rad) * half;
-                    const dy = Math.sin(rad) * half;
-                    element.start = [x - dx, y - dy];
-                    element.end = [x + dx, y + dy];
+                const [x1,y1] = element.start || [0,0];
+                const [x2,y2] = element.end || [0,0];
+                let currentLength = Math.hypot(x2 - x1, y2 - y1);
+                let lengthInput = parseFloat(document.getElementById('eeLineLength').value);
+                if (Number.isNaN(lengthInput) || lengthInput <= 0) {
+                    lengthInput = currentLength;
                 }
+                let centerX = x;
+                let centerY = y;
+                if (Number.isNaN(centerX) || Number.isNaN(centerY)) {
+                    centerX = (x1 + x2) / 2;
+                    centerY = (y1 + y2) / 2;
+                }
+                let rotationDeg = rotation;
+                if (Number.isNaN(rotationDeg)) {
+                    rotationDeg = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+                }
+                const { start, end } = computeLineEndpoints(centerX, centerY, rotationDeg, lengthInput);
+                element.start = start;
+                element.end = end;
+                element.rotation = rotationDeg;
+                element.line_length_mm = lengthInput;
             } else if (element.type === 'circle') {
                 const r = parseFloat(document.getElementById('eeRadius').value);
                 if (!Number.isNaN(x) && !Number.isNaN(y)) element.position = [x, y];
@@ -2764,6 +2896,7 @@ function validateCalibration() {
                 const anyHelpers = (elements || []).some(e => !!e.show_helper_lines);
                 if (window.socket) window.socket.emit('set_projection_mode', { mode: anyHelpers ? 'svg' : 'frames' });
             } catch (e) {}
+            setElementEditorAlert(null);
             closeElementEditor();
         }
 
@@ -2792,7 +2925,7 @@ function validateCalibration() {
 
         function removeElement(index) {
             const element = elements[index];
-            const elementName = element ? element.label : 'this element';
+            const elementName = element ? getElementDisplayName(element) : 'this element';
             pendingDeleteIndex = index;
             
             document.getElementById('deleteElementName').textContent = `"${elementName}"`;
@@ -3237,11 +3370,11 @@ function validateCalibration() {
             const over = Math.max(pressW, pressH) * 2;
             if (currentLayout.center_lines?.horizontal != null) {
                 const y = currentLayout.center_lines.horizontal;
-                rotGroup.line(-over, y, pressW + over, y).stroke({ color: '#ff0000', width: 5, dasharray: '8,4' });
+                rotGroup.line(-over, y, pressW + over, y).stroke({ color: '#ff0000', width: 5, dasharray: '8,4', opacity: 0.5 });
             }
             if (currentLayout.center_lines?.vertical != null) {
                 const x = currentLayout.center_lines.vertical;
-                rotGroup.line(x, -over, x, pressH + over).stroke({ color: '#ff0000', width: 5, dasharray: '8,4' });
+                rotGroup.line(x, -over, x, pressH + over).stroke({ color: '#ff0000', width: 5, dasharray: '8,4', opacity: 0.5 });
             }
 
             // Helper lines through element centers (per-element toggle)
@@ -3291,31 +3424,19 @@ function validateCalibration() {
                 if (el.type === 'line') {
                     const [x1, y1] = el.start || [0, 0];
                     const [x2, y2] = el.end || [0, 0];
-                    // Compute extended drawing endpoints so lines remain visible when rotated
+                    updateLineLength(el);
+                    el.rotation = Math.atan2((y2 - y1), (x2 - x1)) * 180 / Math.PI;
                     const mx = (x1 + x2) / 2;
                     const my = (y1 + y2) / 2;
-                    const vx = x2 - x1;
-                    const vy = y2 - y1;
-                    const vlen = Math.hypot(vx, vy) || 1;
-                    const ux = vx / vlen;
-                    const uy = vy / vlen;
-                    const over = Math.max(pressW, pressH) * 2;
-                    const drawHalf = vlen / 2 + over;
-                    const dx = ux * drawHalf;
-                    const dy = uy * drawHalf;
-                    const dx1 = mx - dx;
-                    const dy1 = my - dy;
-                    const dx2 = mx + dx;
-                    const dy2 = my + dy;
                     const lg = g.group();
                     lg.css('cursor', 'grab');
-                    // Visible extended line
-                    lg.line(dx1, dy1, dx2, dy2).stroke({ color: el.color || '#0ff', width: el.line_width || 5, dasharray: '5,5' });
+                    // Visible line at actual endpoints
+                    const visibleLine = lg.line(x1, y1, x2, y2).stroke({ color: el.color || '#0ff', width: el.line_width || 5, dasharray: '5,5' });
                     // Transparent, thicker hit line for easier dragging
-                    lg.line(dx1, dy1, dx2, dy2)
-                        .stroke({ color: '#000', width: 6, opacity: 0.001 })
+                    lg.line(x1, y1, x2, y2)
+                        .stroke({ color: '#000', width: (el.line_width || 5) + 6, opacity: 0.001 })
                         .attr('pointer-events', 'stroke');
-                    if (el.label) lg.text(el.label).font({ size: 6 }).fill('#fff').move((x1 + x2) / 2, (y1 + y2) / 2 - 2).attr('text-anchor', 'middle');
+                    if (el.label) lg.text(el.label).font({ size: 6 }).fill('#fff').move(mx, my - 2).attr('text-anchor', 'middle');
                     if (typeof lg.draggable === 'function') {
                         lg.draggable();
                         // Ensure selection when dragging starts
@@ -3344,6 +3465,7 @@ function validateCalibration() {
                             // Update the element with the new positions
                             el.start = [x1 + offsetX, y1 + offsetY];
                             el.end = [x2 + offsetX, y2 + offsetY];
+                            updateLineLength(el);
                             
                             sendLayoutUpdate();
                             renderControlPreview();
@@ -3624,6 +3746,7 @@ function validateCalibration() {
                 const [x2,y2] = el.end || [0,0];
                 el.start = [x1 + dx_mm, y1 + dy_mm];
                 el.end   = [x2 + dx_mm, y2 + dy_mm];
+                updateLineLength(el);
             } else if (el.type === 'rectangle' || el.type === 'circle' || el.type === 'text' || el.type === 'image') {
                 const [x,y] = el.position || [0,0];
                 el.position = [x + dx_mm, y + dy_mm];
@@ -3660,6 +3783,8 @@ function validateCalibration() {
                 const ry2 = cx2 * sinA + cy2 * cosA;
                 el.start = [mx + rx1, my + ry1];
                 el.end   = [mx + rx2, my + ry2];
+                updateLineLength(el);
+                el.rotation = Math.atan2((el.end[1] - el.start[1]), (el.end[0] - el.start[0])) * 180 / Math.PI;
             }
             suppressImmediateRender = true;
             renderControlPreview();

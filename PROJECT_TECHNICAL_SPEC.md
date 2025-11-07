@@ -396,6 +396,7 @@ press_projector/
       "text": string,     // for text
       "font_size": int,   // for text
       "image_url": string, // for image
+      "name": string,     // optional display name (non-text elements)
       "label": string     // optional label
     }
   ]

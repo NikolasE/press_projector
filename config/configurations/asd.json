@@ -36,27 +36,31 @@
       {
         "color": "#00ffff",
         "end": [
-          67.04409790039062,
-          -42.870147705078125
+          124.91098023725755,
+          126.62814332319505
         ],
-        "label": "Line 4",
+        "label": "",
         "line_width": 5,
+        "name": "qwd",
         "show_helper_lines": false,
         "start": [
-          17.044097900390625,
-          -92.87014770507812
+          25.91603087114089,
+          27.63319395707839
         ],
-        "type": "line"
+        "type": "line",
+        "line_length_mm": 140,
+        "rotation": 45
       },
       {
         "color": "#00ffff",
         "height": 90.09404388714734,
         "image_url": "http://localhost:5670/uploads/ubuntu_2.png",
-        "label": "Image 4",
+        "label": "",
+        "name": "Image 4",
         "opacity": 0.58,
         "position": [
-          -143.58296632766724,
-          19.213211059570312
+          -143.6,
+          19.599999999999994
         ],
         "rotation": 0,
         "show_helper_lines": false,
@@ -79,11 +83,12 @@
       {
         "color": "#00ffff",
         "height": 30,
-        "label": "Rectangle 6",
+        "label": "",
         "line_width": 5,
+        "name": "Rectangle 6",
         "position": [
-          -136.5975465774536,
-          -35.33251953125
+          -136.19999980926514,
+          -48.400001525878906
         ],
         "rotation": 0,
         "show_helper_lines": false,
@@ -93,5 +98,5 @@
     ]
   },
   "config_name": "asd",
-  "timestamp": "2025-11-07T12:59:18.417093"
+  "timestamp": "2025-11-07T13:26:39.794655"
 }
