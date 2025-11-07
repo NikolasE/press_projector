@@ -3271,7 +3271,9 @@ function validateCalibration() {
                     cy = y + h / 2;
                 } else if (el.type === 'text') {
                     const [x, y] = el.position || [0, 0];
-                    cx = x; cy = y;
+                    const fs = el.font_size || el.text_size || 10;
+                    cx = x;
+                    cy = y + fs;
                 }
                 if (cx !== null && cy !== null) {
                     rotGroup.line(-over, cy, pressW + over, cy).stroke(strokeStyle);

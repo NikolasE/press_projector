@@ -36,15 +36,15 @@
       {
         "color": "#00ffff",
         "end": [
-          39.436737060546875,
-          -40.952972412109375
+          67.04409790039062,
+          -42.870147705078125
         ],
         "label": "Line 4",
         "line_width": 5,
         "show_helper_lines": false,
         "start": [
-          -10.563262939453125,
-          -90.95297241210938
+          17.044097900390625,
+          -92.87014770507812
         ],
         "type": "line"
       },
@@ -75,9 +75,23 @@
         "show_helper_lines": false,
         "text": "230deg, 130sec",
         "type": "text"
+      },
+      {
+        "color": "#00ffff",
+        "height": 30,
+        "label": "Rectangle 6",
+        "line_width": 5,
+        "position": [
+          -136.5975465774536,
+          -35.33251953125
+        ],
+        "rotation": 0,
+        "show_helper_lines": false,
+        "type": "rectangle",
+        "width": 270
       }
     ]
   },
   "config_name": "asd",
-  "timestamp": "2025-11-07T10:37:41.765664"
+  "timestamp": "2025-11-07T12:59:18.417093"
 }

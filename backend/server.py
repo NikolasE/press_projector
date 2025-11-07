@@ -221,9 +221,11 @@ def _svg_element(el: Dict[str, Any]) -> str:
         color = el.get('color', '#0ff')
         rot = el.get('rotation', 0)
         txt = (el.get('text') or '').replace('&','&amp;')
+        baseline_y = y_mm
+        text_attrs = f'x="{x_mm}" y="{baseline_y}" fill="{color}" font-size="{fs}" font-family="Arial, sans-serif" alignment-baseline="hanging"'
         if rot:
-            return f'<g transform="rotate({rot} {x_mm} {y_mm})"><text x="{x_mm}" y="{y_mm}" fill="{color}" font-size="{fs}" font-family="Arial, sans-serif">{txt}</text></g>'
-        return f'<text x="{x_mm}" y="{y_mm}" fill="{color}" font-size="{fs}" font-family="Arial, sans-serif">{txt}</text>'
+            return f'<g transform="rotate({rot} {x_mm} {baseline_y})"><text {text_attrs}>{txt}</text></g>'
+        return f'<text {text_attrs}>{txt}</text>'
     if t == 'image':
         x_mm, y_mm = (el.get('position') or [0,0])
         w_mm = el.get('width', 20)
@@ -1605,7 +1607,8 @@ def _render_press_scene(press_id: str, svg_str: str, output_width: int, output_h
         logger.warning(f"Failed to decode PNG for {press_id}")
         return None
 
-    save_debug_png(img, 'latest_raw.png')
+    save_debug_png(img, '_render_press_scene.png')
+    save_debug_svg(svg_processed, '_render_press_scene.svg')
     
     
     # # Ensure image has alpha channel (BGRA)
