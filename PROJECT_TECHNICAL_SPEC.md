@@ -38,7 +38,6 @@ The system computes a 3x3 homogeneous transformation matrix using four-point cor
 ```json
 {
   "projector_pixels": [[x1,y1], [x2,y2], [x3,y3], [x4,y4]],
-  "target_pixels": {"width": int, "height": int},
   "press_width_mm": float,
   "press_height_mm": float,
   "pixels_per_mm": float
@@ -139,7 +138,7 @@ Timer-based broadcast system (2-second interval) sends layout updates to control
 ### 5. REST API Endpoints
 
 #### Calibration Endpoints
-- `POST /api/calibration`: Accepts JSON with `projector_pixels`, `target_pixels`, `press_width_mm`, `press_height_mm`. Validates input, computes calibration, persists to database, broadcasts via WebSocket.
+- `POST /api/calibration`: Accepts JSON with `projector_pixels`, `press_width_mm`, `press_height_mm`. Validates input, computes calibration, persists to database, broadcasts via WebSocket.
 - `GET /api/calibration`: Returns current calibration data or 404 if absent.
 
 #### Layout Endpoints
@@ -254,7 +253,7 @@ Timer-based broadcast system (2-second interval) sends layout updates to control
 #### Transformation Chain
 1. **Design Space (mm)**: User-defined metric coordinates
 2. **Press Space (mm)**: Calibrated press area coordinates (0,0) to (width_mm, height_mm)
-3. **Target Pixel Space**: Rectangular raster target (defined by `target_pixels`)
+3. **Target Pixel Space**: Rectangular raster target derived from press dimensions (`press_width_mm` × `press_height_mm` × fixed px/mm)
 4. **Projector Pixel Space**: Warped projector coordinates via inverse perspective transform
 
 #### Element Rendering Pipeline
@@ -310,11 +309,6 @@ press_projector/
 - Normalization: `x_final = x' / w'`, `y_final = y' / w'`
 - OpenCV handles normalization internally in `cv2.perspectiveTransform()`
 
-#### Pixels-per-millimeter Calculation
-- Computes average of width and height scaling factors:
-  - `ppm_w = ||source_points[1] - source_points[0]|| / press_width_mm`
-  - `ppm_h = ||source_points[2] - source_points[1]|| / press_height_mm`
-  - `pixels_per_mm = (ppm_w + ppm_h) / 2.0`
 
 #### Aspect Ratio Preservation
 - Image elements: `aspect_ratio = img_height / img_width` (from OpenCV `cv2.imread()`)

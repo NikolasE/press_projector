@@ -17,13 +17,8 @@
       623.0
     ]
   ],
-  "target_pixels": {
-    "width": 1920,
-    "height": 1080
-  },
   "press_width_mm": 300,
   "press_height_mm": 300,
-  "pixels_per_mm": 1.125,
   "press_id": "press1",
   "timestamp": "2025-11-07T11:19:21.001392"
 }

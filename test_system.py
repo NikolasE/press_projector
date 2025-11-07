@@ -26,8 +26,7 @@ def test_database():
         "destination_points": [[0, 0], [300, 0], [300, 200], [0, 200]],
         "press_width_mm": 300,
         "press_height_mm": 200,
-        "transformation_matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
-        "pixels_per_mm": 1.5
+        "transformation_matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
     }
     
     success = db.save_calibration(calibration_data)
@@ -80,41 +79,20 @@ def test_calibration():
     
     # Test calibration setup
     source_points = [[100, 100], [500, 100], [500, 400], [100, 400]]
-    destination_points = [[0, 0], [300, 0], [300, 200], [0, 200]]
+    press_width_mm = 300
+    press_height_mm = 200
     
-    success = calibrator.set_calibration_points(
-        source_points, destination_points, 300, 200
+    success = calibrator.set_calibration_from_target(
+        source_points, press_width_mm, press_height_mm
     )
     print(f"  Set calibration: {'✓' if success else '✗'}")
     
     # Test coordinate conversion
     try:
-        x, y = calibrator.press_to_projector(150, 100)
-        print(f"  Press to projector: {'✓' if x > 0 and y > 0 else '✗'}")
-        
-        x_back, y_back = calibrator.projector_to_press(x, y)
-        print(f"  Projector to press: {'✓' if abs(x_back - 150) < 1 and abs(y_back - 100) < 1 else '✗'}")
+        raw_width_px, raw_height_px = calibrator.get_raw_size_px()
+        print(f"  Raw size: {'✓' if raw_width_px > 0 and raw_height_px > 0 else '✗'}")
     except Exception as e:
-        print(f"  Coordinate conversion: ✗ ({e})")
-    
-    # Test scaling
-    try:
-        pixels = calibrator.mm_to_pixels(10)
-        mm = calibrator.pixels_to_mm(pixels)
-        print(f"  Scaling: {'✓' if abs(mm - 10) < 0.1 else '✗'}")
-    except Exception as e:
-        print(f"  Scaling: ✗ ({e})")
-    
-    # Test boundary pattern
-    try:
-        boundary = calibrator.generate_press_boundary_pattern()
-        print(f"  Boundary pattern: {'✓' if len(boundary) == 4 else '✗'}")
-    except Exception as e:
-        print(f"  Boundary pattern: ✗ ({e})")
-    
-    # Test validation
-    validation = calibrator.validate_calibration_quality()
-    print(f"  Validation: {'✓' if validation.get('valid', False) else '✗'}")
+        print(f"  Raw size: ✗ ({e})")
     
     print("Calibration test completed.\n")
 
@@ -124,10 +102,10 @@ def test_projector():
     print("Testing projector...")
     
     calibrator = Calibrator()
-    calibrator.set_calibration_points(
+    calibrator.set_calibration_from_target(
         [[100, 100], [500, 100], [500, 400], [100, 400]],
-        [[0, 0], [300, 0], [300, 200], [0, 200]],
-        300, 200
+        300,
+        200
     )
     
     projector = ProjectorManager(calibrator)

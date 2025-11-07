@@ -5,23 +5,25 @@ Handles 4-point calibration and coordinate conversion.
 
 import cv2
 import numpy as np
-from typing import List, Tuple, Optional, Dict, Any
-import json
+from typing import List, Tuple, Dict, Any
+
+
+
 
 
 class Calibrator:
     """Handles perspective transformation calibration and coordinate conversion."""
     
+    # Default raster density when converting press dimensions to pixels for raw renders
+    PIXELS_PER_MM = 10
+
     def __init__(self):
         self.source_points = None  # Points in projector space
-        self.destination_points = None  # Points in press space (mm)
+        self.destination_points = None  # Points in press raster space (pixels)
         self.transformation_matrix = None
         self.press_width_mm = None
         self.press_height_mm = None
-        self.pixels_per_mm = None
 
-    
-    
     def set_calibration_points(self, source_points: List[List[float]], 
                               destination_points: List[List[float]],
                               press_width_mm: float, press_height_mm: float) -> bool:
@@ -45,202 +47,77 @@ class Calibrator:
         self.press_width_mm = press_width_mm
         self.press_height_mm = press_height_mm
         
-        # Compute matrix and pixels_per_mm using current factor
-        self._recompute_matrix_and_ppm()
+        self._recompute_warp_matrix()
         return True
 
+
+    @property
+    def raw_width_px(self) -> int:
+        if self.press_width_mm is None:
+            raise ValueError("press_width_mm not set")
+        return int(round(float(self.press_width_mm) * self.PIXELS_PER_MM))
+
+    @property
+    def raw_height_px(self) -> int:
+        if self.press_height_mm is None:
+            raise ValueError("press_height_mm not set")
+        return int(round(float(self.press_height_mm) * self.PIXELS_PER_MM))
+
     def set_calibration_from_target(self, source_points: List[List[float]],
-                                    target_width_px: int, target_height_px: int,
                                     press_width_mm: float, press_height_mm: float) -> bool:
         """Convenience: build destination rectangle from target raster size."""
+
+        self.press_width_mm = press_width_mm
+        self.press_height_mm = press_height_mm
+
         destination_points = [
             [0.0, 0.0],
-            [float(target_width_px), 0.0],
-            [float(target_width_px), float(target_height_px)],
-            [0.0, float(target_height_px)]
+            [float(self.raw_width_px), 0.0],
+            [float(self.raw_width_px), float(self.raw_height_px)],
+            [0.0, float(self.raw_height_px)]
         ]
         return self.set_calibration_points(source_points, destination_points, press_width_mm, press_height_mm)
     
     def is_calibrated(self) -> bool:
         """Check if calibration is complete."""
-        return (self.transformation_matrix is not None and 
-                self.pixels_per_mm is not None)
+        return self.transformation_matrix is not None
     
-    def projector_to_press(self, x: float, y: float) -> Tuple[float, float]:
-        """
-        Convert projector coordinates to press coordinates (mm).
-        
-        Args:
-            x, y: Coordinates in projector space (pixels)
-        
-        Returns:
-            Tuple of (x, y) coordinates in press space (mm)
-        """
-        if not self.is_calibrated():
-            raise ValueError("Calibration not complete")
-        
-        # Apply perspective transformation
-        point = np.array([[[x, y]]], dtype=np.float32)
-        transformed = cv2.perspectiveTransform(point, self.transformation_matrix)
-        return float(transformed[0][0][0]), float(transformed[0][0][1])
-    
-    def press_to_projector(self, x_mm: float, y_mm: float) -> Tuple[float, float]:
-        """
-        Convert press coordinates to projector coordinates (pixels).
-        
-        Args:
-            x_mm, y_mm: Coordinates in press space (mm)
-        
-        Returns:
-            Tuple of (x, y) coordinates in projector space (pixels)
-        """
-        if not self.is_calibrated():
-            raise ValueError("Calibration not complete")
-        
-        # Apply inverse perspective transformation
-        inv_matrix = np.linalg.inv(self.transformation_matrix)
-        point = np.array([[[x_mm, y_mm]]], dtype=np.float32)
-        transformed = cv2.perspectiveTransform(point, inv_matrix)
-        return float(transformed[0][0][0]), float(transformed[0][0][1])
-    
-    def mm_to_pixels(self, mm_value: float) -> float:
-        """Convert mm to pixels using calibration data."""
-        if not self.is_calibrated():
-            raise ValueError("Calibration not complete")
-        return mm_value * self.pixels_per_mm
-    
-    def pixels_to_mm(self, pixel_value: float) -> float:
-        """Convert pixels to mm using calibration data."""
-        if not self.is_calibrated():
-            raise ValueError("Calibration not complete")
-        return pixel_value / self.pixels_per_mm
-    
-    def generate_press_boundary_pattern(self, margin_mm: float = 5.0) -> List[List[float]]:
-        """
-        Generate press boundary pattern for alignment verification.
-        
-        Args:
-            margin_mm: Margin around press area in mm
-        
-        Returns:
-            List of 4 corner points in projector space (pixels)
-        """
-        if not self.is_calibrated():
-            raise ValueError("Calibration not complete")
-        
-        # Define press area corners with margin
-        corners_mm = [
-            [-margin_mm, -margin_mm],
-            [self.press_width_mm + margin_mm, -margin_mm],
-            [self.press_width_mm + margin_mm, self.press_height_mm + margin_mm],
-            [-margin_mm, self.press_height_mm + margin_mm]
-        ]
-        
-        # Convert to projector coordinates
-        projector_corners = []
-        for x_mm, y_mm in corners_mm:
-            x_px, y_px = self.press_to_projector(x_mm, y_mm)
-            projector_corners.append([x_px, y_px])
-        
-        return projector_corners
-    
+
     def get_calibration_data(self) -> Dict[str, Any]:
         """Get calibration data for saving."""
         if not self.is_calibrated():
             return {}
         
-        # Derive target pixel size from destination rectangle
-        try:
-            dw = float(self.destination_points[1][0] - self.destination_points[0][0])
-            dh = float(self.destination_points[2][1] - self.destination_points[1][1])
-        except Exception:
-            dw, dh = 0.0, 0.0
-
         return {
             "projector_pixels": self.source_points.tolist(),
-            "target_pixels": {"width": int(round(dw)), "height": int(round(dh))},
             "press_width_mm": self.press_width_mm,
             "press_height_mm": self.press_height_mm,
-            # Do not persist transformation_matrix
-            "pixels_per_mm": round(self.pixels_per_mm, 3)
         }
+    
+    def get_raw_size_px(self) -> Tuple[int, int]:
+        """Get raw size in pixels."""
+        return self.raw_width_px, self.raw_height_px
     
     def load_calibration_data(self, data: Dict[str, Any]) -> bool:
         """Load calibration data from saved data."""
-        try:
-            # Require new key 'projector_pixels'
-            self.source_points = np.array(data["projector_pixels"], dtype=np.float32)
-            # Require new target_pixels format
-            tp = data["target_pixels"]
-            tw = int(tp.get("width", 0))
-            th = int(tp.get("height", 0))
-            self.destination_points = np.array([[0,0],[tw,0],[tw,th],[0,th]], dtype=np.float32)
-            self.press_width_mm = data["press_width_mm"]
-            self.press_height_mm = data["press_height_mm"]
-            # Recompute matrix and pixels_per_mm from points and sizes
-            self._recompute_matrix_and_ppm()
-            return True
-        except KeyError as e:
-            return False
 
-    def _recompute_matrix_and_ppm(self) -> None:
-        """Recompute perspective matrix and pixels_per_mm using current state."""
+        self.press_width_mm = data["press_width_mm"]
+        self.press_height_mm = data["press_height_mm"]
+        self.source_points = np.array(data["projector_pixels"], dtype=np.float32)
+        self.destination_points = np.array([[0,0],[self.raw_width_px,0],[self.raw_width_px,self.raw_height_px],[0,self.raw_height_px]], dtype=np.float32)
+
+        self._recompute_warp_matrix()
+
+        return True
+
+    def _recompute_warp_matrix(self) -> None:
+        """Recompute perspective warp matrix using current state."""
         if self.source_points is None or self.destination_points is None:
             self.transformation_matrix = None
-            self.pixels_per_mm = None
             return
         # Compute transformation matrix using raw source points
         self.transformation_matrix = cv2.getPerspectiveTransform(
             self.source_points, self.destination_points
         )
-        # Compute pixels_per_mm based on projector pixel space (unscaled)
-        try:
-            src_width = np.linalg.norm(self.source_points[1] - self.source_points[0])
-            src_height = np.linalg.norm(self.source_points[2] - self.source_points[1])
-            if self.press_width_mm and self.press_height_mm and self.press_width_mm > 0 and self.press_height_mm > 0:
-                ppm_w = src_width / float(self.press_width_mm)
-                ppm_h = src_height / float(self.press_height_mm)
-                self.pixels_per_mm = (ppm_w + ppm_h) / 2.0
-            else:
-                self.pixels_per_mm = 1.0
-        except Exception:
-            self.pixels_per_mm = 1.0
-    
-    def validate_calibration_quality(self) -> Dict[str, Any]:
-        """
-        Validate calibration quality and return metrics.
-        
-        Returns:
-            Dict with validation results
-        """
-        if not self.is_calibrated():
-            return {"valid": False, "error": "No calibration data"}
-        
-        # Test transformation accuracy by round-trip conversion
-        test_points = [
-            [0, 0],
-            [self.press_width_mm, 0],
-            [self.press_width_mm, self.press_height_mm],
-            [0, self.press_height_mm]
-        ]
-        
-        errors = []
-        for x_mm, y_mm in test_points:
-            x_px, y_px = self.press_to_projector(x_mm, y_mm)
-            x_mm_back, y_mm_back = self.projector_to_press(x_px, y_px)
-            
-            error = np.sqrt((x_mm - x_mm_back)**2 + (y_mm - y_mm_back)**2)
-            errors.append(error)
-        
-        max_error = max(errors)
-        avg_error = sum(errors) / len(errors)
-        
-        return {
-            "valid": max_error < 1.0,  # Less than 1mm error
-            "max_error_mm": max_error,
-            "avg_error_mm": avg_error,
-            "pixels_per_mm": self.pixels_per_mm
-        }
 
 
-# Example usage and testing

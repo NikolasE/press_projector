@@ -342,7 +342,6 @@ periodic_update_timer = None
 is_rendering = False
 pending_render = None
 
-# Use fixed 2x supersampling when rasterizing SVG prior to warping
 
 def encode_filename_to_data_url(filename: str):
     """Encode an uploaded image filename to a base64 data URL if it exists."""
@@ -601,18 +600,12 @@ def save_calibration():
         if press_id not in _press_calibrators:
             return jsonify({'error': f'Invalid press_id: {press_id}'}), 400
         
-        # Validate required fields: 'projector_pixels' and 'target_pixels'
-        required_fields = ['press_width_mm', 'press_height_mm', 'projector_pixels', 'target_pixels']
+        # Validate required fields
+        required_fields = ['press_width_mm', 'press_height_mm', 'projector_pixels']
         for field in required_fields:
             if field not in data:
                 return jsonify({'error': f'Missing required field: {field}'}), 400
-        
-        # Determine target pixel size
-        tp = data['target_pixels']
-        target_w = int(tp.get('width', 0))
-        target_h = int(tp.get('height', 0))
-        if target_w <= 0 or target_h <= 0:
-            return jsonify({'error': 'Invalid target_pixels'}), 400
+    
 
         # Determine projector points array
         sp = data.get('projector_pixels')
@@ -623,8 +616,6 @@ def save_calibration():
         calibrator = get_calibrator(press_id)
         success = calibrator.set_calibration_from_target(
             sp,
-            target_w,
-            target_h,
             data['press_width_mm'],
             data['press_height_mm']
         )
@@ -749,20 +740,15 @@ def save_press_calibration_endpoint(press_id: str):
             return jsonify({'error': 'No calibration data provided'}), 400
         
         # Validate required fields
-        required_fields = ['press_width_mm', 'press_height_mm', 'projector_pixels', 'target_pixels']
+        required_fields = ['press_width_mm', 'press_height_mm', 'projector_pixels']
         for field in required_fields:
             if field not in data:
                 return jsonify({'error': f'Missing required field: {field}'}), 400
         
         # Set calibration
         calibrator = get_calibrator(press_id)
-        tp = data['target_pixels']
-        target_w = int(tp.get('width', 0))
-        target_h = int(tp.get('height', 0))
         success = calibrator.set_calibration_from_target(
             data['projector_pixels'],
-            target_w,
-            target_h,
             data['press_width_mm'],
             data['press_height_mm']
         )
@@ -1603,23 +1589,14 @@ def _render_press_scene(press_id: str, svg_str: str, output_width: int, output_h
     svg_processed = adjust_upload_image_heights(svg_str)
     svg_processed = inline_upload_image_links(svg_processed)
     
-    # Determine rasterization resolution based on press space
-    try:
-        # destination_points is [[0,0], [tw,0], [tw,th], [0,th]]
-        dw = int(calibrator.destination_points[1][0] - calibrator.destination_points[0][0])
-        dh = int(calibrator.destination_points[2][1] - calibrator.destination_points[1][1])
-        target_w = max(1, dw)
-        target_h = max(1, dh)
-    except Exception:
-        # Fallback: use a reasonable default based on press dimensions
-        target_w = int(calibrator.press_width_mm * 10)  # 10 pixels per mm
-        target_h = int(calibrator.press_height_mm * 10)
-    
+
+    raw_width_px, raw_height_px = calibrator.get_raw_size_px()
+
 
     # Rasterize SVG at press-space resolution
     png_bytes = cairosvg.svg2png(bytestring=svg_processed.encode('utf-8'), 
-                                  output_width=target_w, 
-                                  output_height=target_h)
+                                  output_width=raw_width_px, 
+                                  output_height=raw_height_px)
     
     # Decode PNG to image (BGRA)
     buf = np.frombuffer(png_bytes, dtype=np.uint8)

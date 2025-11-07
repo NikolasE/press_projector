@@ -142,10 +142,11 @@ class SVGUtils {
 }
 
 // Coordinate conversion utilities
+const DEFAULT_PIXELS_PER_MM = 10;
 class CoordinateConverter {
     constructor(calibrationData) {
         this.calibration = calibrationData;
-        this.pixelsPerMm = calibrationData?.pixels_per_mm || 1;
+        this.pixelsPerMm = DEFAULT_PIXELS_PER_MM;
     }
 
     mmToPixels(mm) {
